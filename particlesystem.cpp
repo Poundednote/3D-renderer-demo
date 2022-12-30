@@ -31,16 +31,18 @@ class ParticleSystem {
         return phase_space;
     }
 
-    void set_state(vector<vector<float>> src) {
-        for (int i = 0; i < p.size(); i++) {
-            p[i].v[0] = src[i][0];
-            p[i].v[0] = src[i][1];
-            p[i].v[0] = src[i][2];
-            p[i].v[0] = src[i][3];
-            p[i].v[0] = src[i][4];
-            p[i].v[0] = src[i][5];
+    void set_state(vector<float> v1) {
+        int i = 0;
+        for (int j = 0; j < p.size(); j++) {
+            p[j].x[0] = v1[i++];
+            p[j].x[1] = v1[i++];
+            p[j].x[2] = v1[i++];
+            p[j].v[0] = v1[i++];
+            p[j].v[1] = v1[i++];
+            p[j].v[2] = v1[i++];
         }
     }
+
     vector<float> derivative() {
         vector<float> phase_space_derivative;
         for (int i = 0; i < p.size(); i++) {
@@ -54,3 +56,10 @@ class ParticleSystem {
         return phase_space_derivative;
     }
 };
+
+void eulerstep(ParticleSystem sys, float deltaT) {
+    vector<float> state = sys.get_state();
+    vector<float> new_state = vector_math::add(state, vector_math::scalar_mult(sys.derivative(), deltaT));
+    sys.set_state(new_state);
+    sys.clock += deltaT;
+}
