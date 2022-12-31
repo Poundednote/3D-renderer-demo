@@ -1,4 +1,5 @@
-#include <stdexcept>>
+#include <cmath>
+#include <stdexcept>
 #include <vector>
 using namespace std;
 
@@ -20,6 +21,17 @@ vector<float> add(vector<float> v1, vector<float> v2) {
     }
 }
 
+vector<float> subtract(vector<float> v1, vector<float> v2) {
+    if (!v2.size() == v2.size()) {
+        throw invalid_argument("vectors have to be the same size");
+    }
+    vector<float> v3;
+    for (int i = 0; i < v1.size(); i++) {
+        v3.push_back(v1[i] - v2[i]);
+    }
+    return v3;
+}
+
 /* takes vector [X1, X2...Xn-1, Xn] and multiplies by scalar value such that the
    result is [SX1, SX2,SXn-1, SXn]
     */
@@ -32,4 +44,22 @@ vector<float> scalar_mult(vector<float> v1, float s) {
     return v2;
 }
 
+float dot(vector<float> v1, vector<float> v2) {
+    if (!v2.size() == v2.size()) {
+        throw invalid_argument("vectors have to be the same size");
+    }
+    float result = 0;
+    for (int i = 0; i < v1.size(); i++) {
+        result += v1[i] * v2[i];
+    }
+    return result;
+}
+
+float length(vector<float> v1) {
+    float length = 0;
+    for (int i = 0; i < v1.size(); i++) {
+        length += v1[i] * v1[i];
+    }
+    return sqrt(length);
+}
 }  // namespace vector_math
