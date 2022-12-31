@@ -4,7 +4,7 @@
 
 using namespace std;
 
-class Particle {
+struct Particle {
    public:
     float m;          // mass
     vector<float> x;  // position vector
@@ -45,6 +45,8 @@ class ParticleSystem {
 
     vector<float> derivative() {
         vector<float> phase_space_derivative;
+        // needs to zero the force accummulator first
+        // then should apply all relevant forces again
         for (int i = 0; i < p.size(); i++) {
             phase_space_derivative.push_back(p[i].v[0]);
             phase_space_derivative.push_back(p[i].v[1]);
