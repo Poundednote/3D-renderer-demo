@@ -43,6 +43,7 @@ static void create_random_particles(GameState *state,
         state->particle_count++;
     }
 }
+
 #if DEBUG_MODE
 static void create_side_by_side_particels(GameState *state, 
                                     int number_of_particles, 
@@ -234,13 +235,27 @@ void game_update_and_render(GameMemory *memory,
         }
     }
 
-#if 1
     // transform particles
+
     int cube_count = 0;
     int screen_count = 0;
     for (int i = 0;i < state->particle_count; i++) {
+
+#if SSE
         V2Screen4 screen[2];
         Vertex4Cube *cube = &state->particle_vert[cube_count++];
+#else
+        V2Screen screen[8];
+        V3 cube[8] {v3(state->particles.pos[i].x, state->particles.pos[i].y, state->particles.pos[i].z),
+                    v3(state->particles.pos[i].x, state->particles.pos[i].y, state->particles.pos[i].z+1),
+                    v3(state->particles.pos[i].x, state->particles.pos[i].y+1, state->particles.pos[i].z),
+                    v3(state->particles.pos[i].x, state->particles.pos[i].y+1, state->particles.pos[i].z+1),
+                    v3(state->particles.pos[i].x+1, state->particles.pos[i].y, state->particles.pos[i].z),
+                    v3(state->particles.pos[i].x+1, state->particles.pos[i].y, state->particles.pos[i].z+1),
+                    v3(state->particles.pos[i].x+1, state->particles.pos[i].y+1, state->particles.pos[i].z),
+                    v3(state->particles.pos[i].x+1, state->particles.pos[i].y+1, state->particles.pos[i].z+1)};
+#endif
+
         Triangle triangles[12];
         triangles[0].v1 = 0;
         triangles[0].v2 = 2;
@@ -282,14 +297,21 @@ void game_update_and_render(GameMemory *memory,
         triangles[9].v2 = 7;
         triangles[9].v3 = 6;
 
-        triangles[10].v1 = 0;
-        triangles[10].v2 = 1;
-        triangles[10].v3 = 4;
+        triangles[10].v1 = 1;
+        triangles[10].v2 = 0;
+        triangles[10].v3 = 5;
 
-        triangles[11].v1 = 1;
-        triangles[11].v2 = 5;
-        triangles[11].v3 = 4;
+        triangles[11].v1 = 0;
+        triangles[11].v2 = 4;
+        triangles[11].v3 = 5;
 
+        uint32_t colors[12] = {0xFFFFFFFF,0xFFFFFFFF, 
+                               0xFFFF0000,0xFFFF0000, 
+                               0xFF00FF00,0xFF00FF00, 
+                               0xFF0000FF,0xFF0000FF, 
+                               0xFFFF00FF,0xFFFF00FF, 
+                               0xFF00FFFF,0xFF00FFFF};
+#if SSE
         cube->vertices[0].x = _mm_set1_ps(state->particles.pos[i].x);
         cube->vertices[1].x = _mm_set1_ps(state->particles.pos[i].x+1);
 
@@ -320,18 +342,66 @@ void game_update_and_render(GameMemory *memory,
                             2, 
                             screen);
 
+        // unpack
+        V2Screen unpacked_screen[arraysize(screen)*4];
 
-        uint32_t color = 0xFFFFFFFF;
-        renderer_v2screen4_draw_triangles_filled(buffer, 
-                              screen, 
-                              triangles, 
-                              &color,
-                              1,
-                              12);
+        unpacked_screen[0].x = ((int *)&screen[0].x)[3];
+        unpacked_screen[0].y = ((int *)&screen[0].y)[3];
+
+        unpacked_screen[1].x = ((int *)&screen[0].x)[2];
+        unpacked_screen[1].y = ((int *)&screen[0].y)[2];
+
+        unpacked_screen[2].x = ((int *)&screen[0].x)[1];
+        unpacked_screen[2].y = ((int *)&screen[0].y)[1];
+
+        unpacked_screen[3].x = ((int *)&screen[0].x)[0];
+        unpacked_screen[3].y = ((int *)&screen[0].y)[0];
+
+        unpacked_screen[4].x = ((int *)&screen[1].x)[3];
+        unpacked_screen[4].y = ((int *)&screen[1].y)[3];
+
+        unpacked_screen[5].x = ((int *)&screen[1].x)[2];
+        unpacked_screen[5].y = ((int *)&screen[1].y)[2];
+
+        unpacked_screen[6].x = ((int *)&screen[1].x)[1];
+        unpacked_screen[6].y = ((int *)&screen[1].y)[1];
+
+        unpacked_screen[7].x = ((int *)&screen[1].x)[0];
+        unpacked_screen[7].y = ((int *)&screen[1].y)[0];
+
+        renderer_draw_triangles_filled(buffer, 
+                                       unpacked_screen, 
+                                       triangles, 
+                                       colors, 
+                                       arraysize(triangles));
+#else
+        renderer_world_vertices_to_screen(cube, 
+                                          &state->camera, 
+                                          arraysize(cube), 
+                                          buffer->width, buffer->height, 
+                                          screen);
+
+        for (int triangle = 0; triangle < arraysize(triangles); triangle++) {
+            if (v3_dot(cube[triangles[triangle].v1]-state->camera.pos, 
+                    v3_cross(cube[triangles[triangle].v2]-cube[triangles[triangle].v1], 
+                             cube[triangles[triangle].v3]-cube[triangles[triangle].v1])) >= 0) {
+
+                triangles[triangle].v1 = 0xFFFFFFFF;
+                triangles[triangle].v2 = 0xFFFFFFFF;
+                triangles[triangle].v3 = 0xFFFFFFFF;
+            };
+
+        }
+
+        renderer_draw_triangles_filled(buffer, 
+                                       screen, 
+                                       triangles, 
+                                       colors, 
+                                       arraysize(triangles));
+#endif
 
        // V2Screen4_draw_triangles(buffer, screen, triangles, 0xFFFF00FF, 12);
     }
-#endif
 
     //draw every spring
     for (int i = 0;i < state->spring_count; ++i) {

@@ -106,7 +106,10 @@ struct GameState {
 
     bool gravity;
 
+#if SSE
     Vertex4Cube particle_vert[MAX_PARTICLES];
+#endif
+
 
 #if DEBUG_MODE
     float move_speed;

@@ -60,19 +60,19 @@ static void renderer_vertex4_to_v2screen(Vertex4 *in,
                                 int count,
                                 V2Screen4 *out);
 
-static V3 renderer_transform_world_vertex_to_view(V3 world_pos, 
+static V3 renderer_world_vertex_to_view(V3 world_pos, 
                                                   GameCamera *camera, 
                                                   int buffer_width, 
                                                   int buffer_height);
 
 static bool renderer_v3_should_clip(V3 pos, GameCamera *camera, float aspect_ratio);
 
-static V2Screen renderer_transform_world_vertex_to_screen(V3 world_pos, 
+static V2Screen renderer_world_vertex_to_screen(V3 world_pos, 
                                                           GameCamera *camera, 
                                                           int buffer_width, 
                                                           int buffer_height);
 
-static void renderer_transform_world_vertices_to_screen(V3 *in, 
+static void renderer_world_vertices_to_screen(V3 *in, 
                                                         GameCamera *camera, 
                                                         int count, 
                                                         int buffer_width, 
@@ -119,11 +119,11 @@ static void renderer_draw_flat_bottom_triangle(OffscreenBuffer *buffer,
                                                V2Screen v3,
                                                uint32_t color);
 
-static void renderer_draw_triangle_filled(OffscreenBuffer *buffer,
-                                          V2Screen v1,
-                                          V2Screen v2,
-                                          V2Screen v3,
-                                          uint32_t color);
+static void renderer_draw_triangles_filled(OffscreenBuffer *buffer,
+                                           V2Screen *vertices,
+                                           Triangle *triangles,
+                                           uint32_t *colors,
+                                           int count);
 
 static void renderer_v2screen4_draw_triangle_filled(OffscreenBuffer *buffer,
                                                     V2Screen4 *vertices,

@@ -94,7 +94,7 @@ static void renderer_vertex4_to_v2screen(Vertex4 *in,
     }
 }
 
-static V3 renderer_transform_world_vertex_to_view(V3 world_pos, GameCamera *camera, 
+static V3 renderer_world_vertex_to_view(V3 world_pos, GameCamera *camera, 
                                   int buffer_width,
                                   int buffer_height) {
     V3 result;
@@ -121,8 +121,10 @@ static bool renderer_v3_should_clip(V3 pos,
     return false;
 }
 
-static V2Screen renderer_transform_world_vertex_to_screen(V3 world_pos, GameCamera *camera,
-                                        int buffer_width, int buffer_height) {
+static V2Screen renderer_world_vertex_to_screen(V3 world_pos, 
+                                                GameCamera *camera,
+                                                int buffer_width, 
+                                                int buffer_height) {
 
     V2Screen result;
 
@@ -149,9 +151,12 @@ static V2Screen renderer_transform_world_vertex_to_screen(V3 world_pos, GameCame
     return result;
 }
 
-static void renderer_transform_world_vertices_to_screen(V3 *in, GameCamera *camera, int count, 
-                                                        int buffer_width, int buffer_height,
-                                                        V2Screen *out) {
+static void renderer_world_vertices_to_screen(V3 *in, 
+                                              GameCamera *camera, 
+                                              int count, 
+                                              int buffer_width, 
+                                              int buffer_height,
+                                              V2Screen *out) {
 
     for (int i = 0; i < count; ++i) {
         V2Screen *screen_pos = &out[i];
@@ -180,7 +185,7 @@ static void renderer_transform_world_vertices_to_screen(V3 *in, GameCamera *came
     }
 }
 
-static inline bool renderer_check_v2screen_invalid(V2Screen screen,
+static inline bool renderer_v2screen_isinvalid(V2Screen screen,
                                           int screen_width,
                                           int screen_height) {
 
@@ -210,11 +215,11 @@ static void renderer_draw_line(OffscreenBuffer *buffer,
                  uint32_t color) {
     
 
-    if (renderer_check_v2screen_invalid(start, buffer->width, buffer->height)) {
+    if (renderer_v2screen_isinvalid(start, buffer->width, buffer->height)) {
         return;
     }
 
-    if (renderer_check_v2screen_invalid(end, buffer->width, buffer->height)) {
+    if (renderer_v2screen_isinvalid(end, buffer->width, buffer->height)) {
         return;
     }
 
@@ -263,21 +268,21 @@ static void renderer_transform_and_draw_line(OffscreenBuffer *buffer,
                  GameCamera *camera,
                  uint32_t color) {
 
-    V2Screen start = renderer_transform_world_vertex_to_screen(v_start, 
-                                                               camera, 
-                                                               buffer->width, 
-                                                               buffer->height);
+    V2Screen start = renderer_world_vertex_to_screen(v_start, 
+                                                     camera, 
+                                                     buffer->width, 
+                                                     buffer->height);
 
-    V2Screen end = renderer_transform_world_vertex_to_screen(v_end, 
-                                                             camera, 
-                                                             buffer->width, 
-                                                             buffer->height);
+    V2Screen end = renderer_world_vertex_to_screen(v_end, 
+                                                   camera, 
+                                                   buffer->width, 
+                                                   buffer->height);
 
-    if (renderer_check_v2screen_invalid(start, buffer->width, buffer->height)) {
+    if (renderer_v2screen_isinvalid(start, buffer->width, buffer->height)) {
         return;
     }
 
-    if (renderer_check_v2screen_invalid(end, buffer->width, buffer->height)) {
+    if (renderer_v2screen_isinvalid(end, buffer->width, buffer->height)) {
         return;
     }
 
@@ -347,6 +352,14 @@ static void renderer_v2screen4_draw_triangles_wireframe(OffscreenBuffer *buffer,
     }
 }
 
+static bool renderer_triangle_isculled(Triangle triangle) {
+    if (triangle.v1 == 0xFFFFFFFF) return true;
+    if (triangle.v2 == 0xFFFFFFFF) return true;
+    if (triangle.v3 == 0xFFFFFFFF) return true;
+
+    return false;
+}
+
 static void renderer_draw_flat_top_triangle(OffscreenBuffer *buffer,
                                       V2Screen v1,
                                       V2Screen v2,
@@ -401,61 +414,73 @@ static void renderer_draw_flat_bottom_triangle(OffscreenBuffer *buffer,
     }
 }
 
-static void renderer_draw_triangle_filled(OffscreenBuffer *buffer,
-                      V2Screen v1,
-                      V2Screen v2,
-                      V2Screen v3,
-                      uint32_t color) {
 
-    if (renderer_check_v2screen_invalid(v1, buffer->width, buffer->height)) {
-        return;
+static void renderer_draw_triangles_filled(OffscreenBuffer *buffer,
+                                           V2Screen *vertices,
+                                           Triangle *triangles,
+                                           uint32_t *colors,
+                                           int count) {
+
+    for (int i = 0; i < count; ++i) {
+        if (renderer_triangle_isculled(triangles[i])) {
+            continue;
+        }
+        
+        V2Screen v1 = vertices[triangles[i].v1];
+        V2Screen v2 = vertices[triangles[i].v2];
+        V2Screen v3 = vertices[triangles[i].v3];
+
+        if (renderer_v2screen_isinvalid(v1, buffer->width, buffer->height)) {
+            continue;
+        }
+
+        if (renderer_v2screen_isinvalid(v2, buffer->width, buffer->height)) {
+            continue;
+        }
+
+        if (renderer_v2screen_isinvalid(v3, buffer->width, buffer->height)) {
+            continue;
+        }
+
+        //sort vertexes 
+        if (v3.y > v2.y) {
+            V2Screen temp = v2;
+            v2 = v3;
+            v3 = temp;
+        }
+
+        if (v2.y > v1.y) {
+            V2Screen temp = v1;
+            v1 = v2;
+            v2 = temp;
+        }
+
+        if (v3.y > v2.y) {
+            V2Screen temp = v2;
+            v2 = v3;
+            v3 = temp;
+        }
+
+        if (v3.y == v2.y) {
+            renderer_draw_flat_top_triangle(buffer, v1, v2, v3, colors[i]);
+            continue;
+        }
+
+        if (v1.y == v2.y) {
+            renderer_draw_flat_bottom_triangle(buffer, v1, v2, v3, colors[i]);
+            continue;
+        }
+
+        V2Screen v4;
+        v4.x = (int)(v3.x - (((float)(v3.y-v2.y)/(float)(v3.y-v1.y))*(float)(v3.x-v1.x)));
+        v4.y = v2.y;
+        renderer_draw_flat_top_triangle(buffer, v1, v2, v4, colors[i]);
+        renderer_draw_flat_bottom_triangle(buffer, v2, v4, v3, colors[i]);
     }
-
-    if (renderer_check_v2screen_invalid(v2, buffer->width, buffer->height)) {
-        return;
-    }
-
-    if (renderer_check_v2screen_invalid(v3, buffer->width, buffer->height)) {
-        return;
-    }
-
-    //sort vertexes 
-    if (v3.y > v2.y) {
-        V2Screen temp = v2;
-        v2 = v3;
-        v3 = temp;
-    }
-
-    if (v2.y > v1.y) {
-        V2Screen temp = v1;
-        v1 = v2;
-        v2 = temp;
-    }
-
-    if (v3.y > v2.y) {
-        V2Screen temp = v2;
-        v2 = v3;
-        v3 = temp;
-    }
-
-    if (v3.y == v2.y) {
-        renderer_draw_flat_top_triangle(buffer, v1, v2, v3, color);
-        return;
-    }
-
-    if (v1.y == v2.y) {
-        renderer_draw_flat_bottom_triangle(buffer, v1, v2, v3, color);
-        return;
-    }
-
-    V2Screen v4;
-    v4.x = (int)(v3.x - (((float)(v3.y-v2.y)/(float)(v3.y-v1.y))*(float)(v3.x-v1.x)));
-    v4.y = v2.y;
-    renderer_draw_flat_top_triangle(buffer, v1, v2, v4, color);
-    renderer_draw_flat_bottom_triangle(buffer, v2, v4, v3, color);
 
 }
 
+#if 0
 static void renderer_v2screen4_draw_triangles_filled(OffscreenBuffer *buffer,
                                                     V2Screen4 *vertices,
                                                     Triangle *triangles,
@@ -463,7 +488,8 @@ static void renderer_v2screen4_draw_triangles_filled(OffscreenBuffer *buffer,
                                                     int colors_size,
                                                     int tricount) {
 
-   int color_index = 0;
+
+    int color_index = 0;
     for (int i = 0; i < tricount; ++i) {
         int index1 = triangles->v1 / 4;
         int index2 = triangles->v3 / 4;
@@ -475,7 +501,7 @@ static void renderer_v2screen4_draw_triangles_filled(OffscreenBuffer *buffer,
         V2Screen vertex1 = {((int *)&vertices[index1].x)[offset1], ((int *)&vertices[index1].y)[offset1]};
         V2Screen vertex2 = {((int *)&vertices[index2].x)[offset2], ((int *)&vertices[index2].y)[offset2]};
         V2Screen vertex3 = {((int *)&vertices[index3].x)[offset3], ((int *)&vertices[index3].y)[offset3]};
-        renderer_draw_triangle_filled(buffer, vertex1, vertex2, vertex3, colors[color_index]);
+        renderer_draw_triangles_filled(buffer, vertex1, vertex2, vertex3, colors[color_index]);
         if (i % 2) {
             color_index++;
         }
@@ -485,3 +511,4 @@ static void renderer_v2screen4_draw_triangles_filled(OffscreenBuffer *buffer,
         ++triangles;
     }
 }
+#endif
