@@ -1,49 +1,8 @@
-#include "particle_math.h"
+#include "renderer.h"
 #include <emmintrin.h>
 #include <stdint.h>
-#include <xmmintrin.h>
 
-struct OffscreenBuffer {
-    void *memory;
-    int height;
-    int width;
-    int pitch;
-    int bytes_per_pixel;
-};
-
-struct GameCamera {
-    V3 pos;
-    float width;
-    float height;
-    
-    float znear;
-    float zfar;
-    float fov;
-    float theta_x;
-    float theta_y;
-};
-
-struct V2Screen {
-    int x;
-    int y;
-};
-
-struct V2Screen4 {
-    __m128i x;
-    __m128i y;
-};
-
-struct Vertex4 {
-    __m128 x;
-    __m128 y;
-    __m128 z;
-};
-
-struct Vertex4Cube {
-    Vertex4 vertices[2];
-};
-
-static void Vertex4_to_V2Screen(Vertex4 *in, 
+static void renderer_vertex4_to_v2screen(Vertex4 *in, 
                          GameCamera *camera, 
                          int screen_width,
                          int screen_height,
@@ -135,7 +94,7 @@ static void Vertex4_to_V2Screen(Vertex4 *in,
     }
 }
 
-static V3 transform_world_to_view(V3 world_pos, GameCamera *camera, 
+static V3 renderer_transform_world_vertex_to_view(V3 world_pos, GameCamera *camera, 
                                   int buffer_width,
                                   int buffer_height) {
     V3 result;
@@ -146,7 +105,23 @@ static V3 transform_world_to_view(V3 world_pos, GameCamera *camera,
     return result;
 }
 
-static V2Screen transform_v3_to_screen(V3 world_pos, GameCamera *camera,
+static bool renderer_v3_should_clip(V3 pos, 
+                                    GameCamera *camera, 
+                                    float aspect_ratio) {
+
+    float max_x = tanf(camera->fov/2.0f)*camera->znear * (pos.z/camera->znear) * 
+        aspect_ratio;
+    float max_y = tanf(camera->fov/2.0f)*camera->znear * (pos.z/camera->znear);
+
+    if (pos.z < camera->znear) return true;
+    if (pos.z > camera->zfar) return true;
+    if (fabs(pos.x) > max_x) return true;
+    if (fabs(pos.y) > max_y) return true;
+
+    return false;
+}
+
+static V2Screen renderer_transform_world_vertex_to_screen(V3 world_pos, GameCamera *camera,
                                         int buffer_width, int buffer_height) {
 
     V2Screen result;
@@ -156,35 +131,12 @@ static V2Screen transform_v3_to_screen(V3 world_pos, GameCamera *camera,
              rotation_q4(-camera->theta_y, v3(0,1,0))));
 
     float aspect_ratio = ((float)buffer_width/(float)buffer_height);
-    float max_x = tanf(camera->fov/2.0f)*camera->znear * (relative_pos.z/camera->znear) * 
-        aspect_ratio;
 
-    float max_y = tanf(camera->fov/2.0f)*camera->znear * (relative_pos.z/camera->znear);
-
-    if (relative_pos.z < camera->znear) {
-        result.x = -1; 
-        result.y = -1;
+    if (renderer_v3_should_clip(relative_pos, camera, aspect_ratio)) {
+        result.x = 0xFFFFFFFF;
+        result.y = 0xFFFFFFFF;
         return result;
     }
-
-    if (relative_pos.z > camera->zfar) {
-        result.x = -1; 
-        result.y = -1;
-        return result;
-    }
-
-    if (fabs(relative_pos.x) > max_x) {
-        result.x = -1;
-        result.y = -1;
-        return result;
-    }
-
-    if (fabs(relative_pos.y) > max_y) {
-        result.x = -1;
-        result.y = -1;
-        return result;
-    }
-
 
     float normal_x = (relative_pos.x*(camera->znear/relative_pos.z)) / 
         ((tanf(camera->fov/2.0f)*camera->znear)*aspect_ratio);
@@ -195,13 +147,11 @@ static V2Screen transform_v3_to_screen(V3 world_pos, GameCamera *camera,
     result.x = (int)(normal_x * (buffer_width/2.0f) + buffer_width/2.0f);
     result.y = (int)(-normal_y * (buffer_height/2.0f) + buffer_height/2.0f);
     return result;
-
 }
 
-
-static void transform_vertexes(V3 *in, GameCamera *camera, int count, 
-                               int buffer_width, int buffer_height,
-                               V2Screen *out) {
+static void renderer_transform_world_vertices_to_screen(V3 *in, GameCamera *camera, int count, 
+                                                        int buffer_width, int buffer_height,
+                                                        V2Screen *out) {
 
     for (int i = 0; i < count; ++i) {
         V2Screen *screen_pos = &out[i];
@@ -210,89 +160,69 @@ static void transform_vertexes(V3 *in, GameCamera *camera, int count,
                 (rotation_q4(-camera->theta_x, v3(1,0,0))*
                  rotation_q4(-camera->theta_y, v3(0,1,0))));
 
-    float aspect_ratio = ((float)buffer_width/(float)buffer_height);
-    float max_x = tanf(camera->fov/2.0f)*camera->znear * (relative_pos.z/camera->znear) * 
-        aspect_ratio;
+        float aspect_ratio = ((float)buffer_width/(float)buffer_height);
 
-    float max_y = tanf(camera->fov/2.0f)*camera->znear * (relative_pos.z/camera->znear);
+        if (renderer_v3_should_clip(relative_pos, camera, aspect_ratio)) {
+            out->x = 0xFFFFFFFF;
+            out->y = 0xFFFFFFFF;
+            continue;
+        }
 
-    if (relative_pos.z < camera->znear) {
-        out->x = -1; 
-        out->y = -1;
-    }
+        float normal_x = (relative_pos.x*(camera->znear/relative_pos.z)) / 
+            ((tanf(camera->fov/2.0f)*camera->znear)*aspect_ratio);
 
-    if (relative_pos.z > camera->zfar) {
-        out->x = -1; 
-        out->y = -1;
-    }
+        float normal_y = (relative_pos.y*(camera->znear/relative_pos.z)) / 
+            (tanf(camera->fov/2.0f)*camera->znear);
 
-    if (fabs(relative_pos.x) > max_x) {
-        out->x = -1;
-        out->y = -1;
-    }
-
-    if (fabs(relative_pos.y) > max_y) {
-        out->x = -1;
-        out->y = -1;
-    }
-
-
-    float normal_x = (relative_pos.x*(camera->znear/relative_pos.z)) / 
-                     ((tanf(camera->fov/2.0f)*camera->znear)*aspect_ratio);
-
-    float normal_y = (relative_pos.y*(camera->znear/relative_pos.z)) / 
-                     (tanf(camera->fov/2.0f)*camera->znear);
-    
-    screen_pos->x = (int)(normal_x * (buffer_width/2.0f) + buffer_width/2.0f);
-    screen_pos->y = (int)(-normal_y * (buffer_height/2.0f) + buffer_height/2.0f);
+        screen_pos->x = (int)(normal_x * (buffer_width/2.0f) + buffer_width/2.0f);
+        screen_pos->y = (int)(-normal_y * (buffer_height/2.0f) + buffer_height/2.0f);
 
     }
 }
 
-static inline V3 transform_mouse_to_world(V2Screen screen,
-                                  GameCamera *camera,
-                                  int buffer_width,
-                                  int buffer_height) {
+static inline bool renderer_check_v2screen_invalid(V2Screen screen,
+                                          int screen_width,
+                                          int screen_height) {
 
-    V3 result = {};
-    result.x = (((float)screen.x / (float)(buffer_width/2.0)) - 1) * 
-               (float)camera->width/2.0f;
+    if (screen.x == 0xFFFFFFFF || screen.y == 0xFFFFFFFF) return true;
+    if (screen.x < 0 || screen.x > 1280) return true;
+    if (screen.y < 0 || screen.y > 720) return true;
 
-    result.y = (1 - ((float)screen.y / (float)(buffer_height/2.0))) * 
-                (float)camera->height/2.0f;
-
-    return result + camera->pos;
+    return false;
 }
 
-static void draw_background(OffscreenBuffer *buffer, GameCamera* camera) {
+static void renderer_draw_background(OffscreenBuffer *buffer) {
     uint8_t *row = (uint8_t *)buffer->memory;
     for (int y = 0;y < buffer->height; ++y) {
         uint32_t *pixel = (uint32_t *)row;
 
         for (int x =0;x < buffer->width; ++x) {
-            *pixel++ = 0xFFFF00FF;
+            *pixel++ = 0xFF000000;
         }
 
         row += buffer->pitch;
     }
 }
 
-static void draw_line(OffscreenBuffer *buffer,
+static void renderer_draw_line(OffscreenBuffer *buffer,
                  V2Screen start,
                  V2Screen end,
                  uint32_t color) {
+    
 
-    if (start.x == 0xFFFFFFFF) return;
-    if (start.y == 0xFFFFFFFF) return;
+    if (renderer_check_v2screen_invalid(start, buffer->width, buffer->height)) {
+        return;
+    }
 
-    if (end.x == 0xFFFFFFFF) return;
-    if (end.y == 0xFFFFFFFF) return;
+    if (renderer_check_v2screen_invalid(end, buffer->width, buffer->height)) {
+        return;
+    }
 
-    if (start.x < 0 || start.x > 1280) return;
-    if (start.y < 0 || start.y > 720) return;
-
-    if (end.x < 0 || end.x > 1280) return;
-    if (end.y < 0 || end.y > 720) return;
+    if (start.x > end.x) {
+        V2Screen temp = end;
+        end = start;
+        start = temp;
+    }
 
     int dx = end.x - start.x;
     int dy = end.y - start.y;
@@ -327,20 +257,29 @@ static void draw_line(OffscreenBuffer *buffer,
     }
 }
 
-static void transform_and_draw_line(OffscreenBuffer *buffer,
+static void renderer_transform_and_draw_line(OffscreenBuffer *buffer,
                  V3 v_start,
                  V3 v_end,
                  GameCamera *camera,
                  uint32_t color) {
 
-    V2Screen start = transform_v3_to_screen(v_start, camera, buffer->width, buffer->height);
-    V2Screen end = transform_v3_to_screen(v_end, camera, buffer->width, buffer->height);
+    V2Screen start = renderer_transform_world_vertex_to_screen(v_start, 
+                                                               camera, 
+                                                               buffer->width, 
+                                                               buffer->height);
 
-    if (start.x < 0 || start.x > 1280) return;
-    if (start.y < 0 || start.y > 720) return;
+    V2Screen end = renderer_transform_world_vertex_to_screen(v_end, 
+                                                             camera, 
+                                                             buffer->width, 
+                                                             buffer->height);
 
-    if (end.x < 0 || end.x > 1280) return;
-    if (end.y < 0 || end.y > 720) return;
+    if (renderer_check_v2screen_invalid(start, buffer->width, buffer->height)) {
+        return;
+    }
+
+    if (renderer_check_v2screen_invalid(end, buffer->width, buffer->height)) {
+        return;
+    }
 
     int dx = end.x - start.x;
     int dy = end.y - start.y;
@@ -375,69 +314,174 @@ static void transform_and_draw_line(OffscreenBuffer *buffer,
     }
 }
 
-static void render_square(OffscreenBuffer *buffer, 
-                   V2Screen pixel_pos, 
-                   int side_length, 
-                   uint32_t color) {
+static void renderer_draw_triangle_wireframe(OffscreenBuffer *buffer,
+                           V2Screen v1, 
+                           V2Screen v2, 
+                           V2Screen v3,
+                           uint32_t color) {
 
-    if (pixel_pos.x > buffer->width) {
-        return;
-    }
-    if (pixel_pos.y > buffer->height) {
-        return;
-    }
+    renderer_draw_line(buffer, v1, v2, color);
+    renderer_draw_line(buffer, v2, v3, color);
+    renderer_draw_line(buffer, v3, v1, color);
+}
 
-    if (pixel_pos.x < 0) {
-        return;
-    }
+static void renderer_v2screen4_draw_triangles_wireframe(OffscreenBuffer *buffer,
+                      V2Screen4 *vertices,
+                      Triangle *triangles,
+                      uint32_t color,
+                      int count) {
 
-    if (pixel_pos.y < 0) {
-        return;
-    }
+    for (int i = 0; i < count; ++i) {
+        int index1 = triangles->v1 / 4;
+        int index2 = triangles->v3 / 4;
+        int index3 = triangles->v2 / 4;
 
-    int start_x = pixel_pos.x - side_length/2;
-    int start_y = pixel_pos.y - side_length/2;
-
-    if (start_x < 0) {
-        start_x = 0;
-    }
-
-    if (start_y < 0) {
-        start_y = 0;
-    }
-
-    uint8_t *row = (uint8_t *)buffer->memory + 
-        (start_x*buffer->bytes_per_pixel) + (start_y*buffer->pitch);
-
-    for (int y = start_y; y < start_y+side_length; ++y) {
-        if (y >= buffer->height) {
-            break;
-        }
-        uint32_t *pixel = (uint32_t *)row;
-
-        for (int x = start_x;x < start_x+side_length; ++x) {
-                if (x >= buffer->width) {
-                    break;
-                }
-                *pixel++ = color; 
-            }
-
-        row += buffer->pitch;
+        int offset1 = triangles->v1 % 4;
+        int offset2 = triangles->v3 % 4;
+        int offset3 = triangles->v2 % 4;
+        V2Screen vertex1 = {((int *)&vertices[index1].x)[offset1], ((int* )&vertices[index1].y)[offset1]};
+        V2Screen vertex2 = {((int *)&vertices[index2].x)[offset2], ((int *)&vertices[index2].y)[offset2]};
+        V2Screen vertex3 = {((int *)&vertices[index3].x)[offset3], ((int *)&vertices[index3].y)[offset3]};
+        renderer_draw_triangle_wireframe(buffer, vertex1, vertex2, vertex3, color);
+        triangles++;
     }
 }
 
-static void draw_wire_cube(OffscreenBuffer *buffer, V3 pos, GameCamera *camera, uint32_t color) {
-    transform_and_draw_line(buffer, v3(pos.x, pos.y, pos.z), v3(pos.x, pos.y+1, pos.z), camera, color);
-    transform_and_draw_line(buffer, v3(pos.x, pos.y+1, pos.z), v3(pos.x, pos.y+1, pos.z+1), camera, color);
-    transform_and_draw_line(buffer, v3(pos.x, pos.y+1, pos.z+1), v3(pos.x, pos.y, pos.z+1), camera, color);
-    transform_and_draw_line(buffer, v3(pos.x, pos.y+1, pos.z+1), v3(pos.x, pos.y, pos.z+1), camera, color);
-    transform_and_draw_line(buffer, v3(pos.x, pos.y, pos.z+1), v3(pos.x+1, pos.y, pos.z+1), camera, color);
-    transform_and_draw_line(buffer, v3(pos.x+1, pos.y, pos.z+1), v3(pos.x+1, pos.y, pos.z), camera, color);
-    transform_and_draw_line(buffer, v3(pos.x+1, pos.y, pos.z), v3(pos.x+1, pos.y+1, pos.z), camera, color);
-    transform_and_draw_line(buffer, v3(pos.x+1, pos.y+1, pos.z), v3(pos.x+1, pos.y+1, pos.z+1), camera, color);
-    transform_and_draw_line(buffer, v3(pos.x+1, pos.y+1, pos.z+1), v3(pos.x, pos.y+1, pos.z+1), camera, color);
-    transform_and_draw_line(buffer, v3(pos.x, pos.y, pos.z), v3(pos.x+1, pos.y, pos.z), camera, color);
-    transform_and_draw_line(buffer, v3(pos.x, pos.y, pos.z), v3(pos.x, pos.y, pos.z+1), camera, color);
-    transform_and_draw_line(buffer, v3(pos.x+1, pos.y+1, pos.z+1), v3(pos.x+1, pos.y, pos.z+1), camera, color);
-    transform_and_draw_line(buffer, v3(pos.x, pos.y+1, pos.z), v3(pos.x+1, pos.y+1, pos.z), camera, color);
+static void renderer_draw_flat_top_triangle(OffscreenBuffer *buffer,
+                                      V2Screen v1,
+                                      V2Screen v2,
+                                      V2Screen v3,
+                                      uint32_t color) {
+        
+    float x_inc_left = (float)(v1.x-v2.x)/(float)(v1.y-v2.y);
+    float x_inc_right = (float)(v1.x-v3.x)/(float)(v1.y-v3.y);
+
+    float x_left = (float)v2.x;
+    float x_right = (float)v3.x;
+
+    for (int y = v2.y; y <= v1.y; ++y) {
+        V2Screen left;
+        left.x = (int)x_left;
+        left.y = y;
+
+        V2Screen right;
+        right.x = (int)x_right;
+        right.y = y;
+        renderer_draw_line(buffer, left, right, color);
+
+        x_left += x_inc_left;
+        x_right += x_inc_right;
+
+    }
+}
+
+static void renderer_draw_flat_bottom_triangle(OffscreenBuffer *buffer,
+                                   V2Screen v1,
+                                   V2Screen v2,
+                                   V2Screen v3,
+                                   uint32_t color) {
+    float x_inc_left = (float)(v3.x-v2.x)/(float)(v3.y-v2.y);
+    float x_inc_right = (float)(v3.x-v1.x)/(float)(v3.y-v1.y);
+
+    float x_left = (float)v2.x;
+    float x_right = (float)v1.x;
+    
+    for (int y = v2.y; y >= v3.y; --y) {
+        V2Screen left;
+        left.x = (int)x_left;
+        left.y = y;
+
+        V2Screen right;
+        right.x = (int)x_right;
+        right.y = y;
+        renderer_draw_line(buffer, left, right, color);
+
+        x_left -= x_inc_left;
+        x_right -= x_inc_right;
+    }
+}
+
+static void renderer_draw_triangle_filled(OffscreenBuffer *buffer,
+                      V2Screen v1,
+                      V2Screen v2,
+                      V2Screen v3,
+                      uint32_t color) {
+
+    if (renderer_check_v2screen_invalid(v1, buffer->width, buffer->height)) {
+        return;
+    }
+
+    if (renderer_check_v2screen_invalid(v2, buffer->width, buffer->height)) {
+        return;
+    }
+
+    if (renderer_check_v2screen_invalid(v3, buffer->width, buffer->height)) {
+        return;
+    }
+
+    //sort vertexes 
+    if (v3.y > v2.y) {
+        V2Screen temp = v2;
+        v2 = v3;
+        v3 = temp;
+    }
+
+    if (v2.y > v1.y) {
+        V2Screen temp = v1;
+        v1 = v2;
+        v2 = temp;
+    }
+
+    if (v3.y > v2.y) {
+        V2Screen temp = v2;
+        v2 = v3;
+        v3 = temp;
+    }
+
+    if (v3.y == v2.y) {
+        renderer_draw_flat_top_triangle(buffer, v1, v2, v3, color);
+        return;
+    }
+
+    if (v1.y == v2.y) {
+        renderer_draw_flat_bottom_triangle(buffer, v1, v2, v3, color);
+        return;
+    }
+
+    V2Screen v4;
+    v4.x = (int)(v3.x - (((float)(v3.y-v2.y)/(float)(v3.y-v1.y))*(float)(v3.x-v1.x)));
+    v4.y = v2.y;
+    renderer_draw_flat_top_triangle(buffer, v1, v2, v4, color);
+    renderer_draw_flat_bottom_triangle(buffer, v2, v4, v3, color);
+
+}
+
+static void renderer_v2screen4_draw_triangles_filled(OffscreenBuffer *buffer,
+                                                    V2Screen4 *vertices,
+                                                    Triangle *triangles,
+                                                    uint32_t *colors,
+                                                    int colors_size,
+                                                    int tricount) {
+
+   int color_index = 0;
+    for (int i = 0; i < tricount; ++i) {
+        int index1 = triangles->v1 / 4;
+        int index2 = triangles->v3 / 4;
+        int index3 = triangles->v2 / 4;
+
+        int offset1 = triangles->v1 % 4;
+        int offset2 = triangles->v3 % 4;
+        int offset3 = triangles->v2 % 4;
+        V2Screen vertex1 = {((int *)&vertices[index1].x)[offset1], ((int *)&vertices[index1].y)[offset1]};
+        V2Screen vertex2 = {((int *)&vertices[index2].x)[offset2], ((int *)&vertices[index2].y)[offset2]};
+        V2Screen vertex3 = {((int *)&vertices[index3].x)[offset3], ((int *)&vertices[index3].y)[offset3]};
+        renderer_draw_triangle_filled(buffer, vertex1, vertex2, vertex3, colors[color_index]);
+        if (i % 2) {
+            color_index++;
+        }
+        if (color_index >= colors_size) {
+            color_index = 0;
+        }
+        ++triangles;
+    }
 }

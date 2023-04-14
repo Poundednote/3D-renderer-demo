@@ -107,11 +107,9 @@ struct GameState {
     bool gravity;
 
     Vertex4Cube particle_vert[MAX_PARTICLES];
-    V2Screen4 reference_cubes_s[6*2];
-    Vertex4Cube reference_cubes_v[6];
-    V2Screen4 particle_screen[MAX_PARTICLES*2];
 
 #if DEBUG_MODE
+    float move_speed;
     uint32_t physics_update_counter;
     uint32_t frame_counter;
     float splat_time;

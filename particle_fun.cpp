@@ -28,21 +28,37 @@ static void create_random_particles(GameState *state,
 
     for (int i = 0; i < number_of_particles; i++) { 
         //assert(state->particle_count < arraysize(state->particles));
-        state->particles.mass[i] = (float)(parkmiller_rand(&seed) % 30) + 10;
-        state->particles.radius[i] = state->particles.mass[i];
-        state->particles.pos[i].x = (float)(parkmiller_rand(&seed)%WORLD_WIDTH)-WORLD_RIGHT;
-        state->particles.pos[i].y = (float)(parkmiller_rand(&seed)%WORLD_HEIGHT)-WORLD_TOP;
-        state->particles.pos[i].z = (float)(parkmiller_rand(&seed)%WORLD_DEPTH)-WORLD_FORWARD;
+        state->particles.mass[state->particle_count] = (float)(parkmiller_rand(&seed) % 30) + 10;
+        state->particles.radius[state->particle_count] = state->particles.mass[state->particle_count];
+        state->particles.pos[state->particle_count].x = (float)(parkmiller_rand(&seed)%WORLD_WIDTH)-WORLD_RIGHT;
+        state->particles.pos[state->particle_count].y = (float)(parkmiller_rand(&seed)%WORLD_HEIGHT)-WORLD_TOP;
+        state->particles.pos[state->particle_count].z = (float)(parkmiller_rand(&seed)%WORLD_DEPTH)-WORLD_FORWARD;
 #if 1
-        state->particles.vel[i].x = (float)(parkmiller_rand(&seed)%20)-10;
-        state->particles.vel[i].y = (float)(parkmiller_rand(&seed)%20)-10;
-        state->particles.vel[i].z = 0;
+        state->particles.vel[state->particle_count].x = (float)(parkmiller_rand(&seed)%20)-10;
+        state->particles.vel[state->particle_count].y = (float)(parkmiller_rand(&seed)%20)-10;
+        state->particles.vel[state->particle_count].z = 0;
 #endif
-        state->particles.f_accumulator[i] = {};
+        state->particles.f_accumulator[state->particle_count] = {};
 
         state->particle_count++;
     }
 }
+#if DEBUG_MODE
+static void create_side_by_side_particels(GameState *state, 
+                                    int number_of_particles, 
+                                    V3 start) {
+
+    for (int i = 0; i < number_of_particles; i++) { 
+        //assert(state->particle_count < arraysize(state->particles));
+        state->particles.mass[state->particle_count] = 1;
+        state->particles.radius[state->particle_count] = state->particles.mass[state->particle_count];
+        state->particles.pos[state->particle_count].x = (10*i)+start.x;
+        state->particles.f_accumulator[state->particle_count] = {};
+
+        state->particle_count++;
+    }
+}
+#endif
 
 inline static void spring_apply_force(Spring *spring) {
 
@@ -75,7 +91,8 @@ void game_update_and_render(GameMemory *memory,
         def_pos.y = 0;
 
 #if DEBUG_MODE
-        create_random_particles(state, 7000, 101231);
+        create_random_particles(state, 1000, 12213);
+        create_side_by_side_particels(state, 10, v3(0,0,0));
 #endif
         
 #if 0
@@ -108,9 +125,11 @@ void game_update_and_render(GameMemory *memory,
         state->camera.pos.x = 0;
         state->camera.pos.y = 0;
         state->camera.pos.z = 0;
-        state->camera.zfar = 100000; 
+        state->camera.zfar = 5000; 
         state->camera.znear = 1; 
         state->camera.fov = PI/3.0f;
+
+        state->move_speed = 0.01f;
 
         memory->is_initialised = true;
     }
@@ -121,52 +140,18 @@ void game_update_and_render(GameMemory *memory,
     }
 #endif
 
-
-    draw_background(buffer, &state->camera);
-
-    state->reference_cubes_v[0].vertices[0].x = _mm_set1_ps(10);
-    state->reference_cubes_v[0].vertices[1].x = _mm_set1_ps(10+1);
-    state->reference_cubes_v[0].vertices[0].y = _mm_set1_ps(0);
-    state->reference_cubes_v[0].vertices[1].y = _mm_set1_ps(0+1);
-    state->reference_cubes_v[0].vertices[0].z = _mm_set1_ps(0);
-    state->reference_cubes_v[0].vertices[1].z = _mm_set1_ps(0+1);
-
-    state->reference_cubes_v[1].vertices[0].x = _mm_set1_ps(0);
-    state->reference_cubes_v[1].vertices[1].x = _mm_set1_ps(0+1);
-    state->reference_cubes_v[1].vertices[0].y = _mm_set1_ps(10);
-    state->reference_cubes_v[1].vertices[1].y = _mm_set1_ps(10+1);
-    state->reference_cubes_v[1].vertices[0].z = _mm_set1_ps(0);
-    state->reference_cubes_v[1].vertices[1].z = _mm_set1_ps(0+1);
-
-    state->reference_cubes_v[2].vertices[0].x = _mm_set1_ps(0);
-    state->reference_cubes_v[2].vertices[1].x = _mm_set1_ps(0+1);
-    state->reference_cubes_v[2].vertices[0].y = _mm_set1_ps(0);
-    state->reference_cubes_v[2].vertices[1].y = _mm_set1_ps(0+1);
-    state->reference_cubes_v[2].vertices[0].z = _mm_set1_ps(10);
-    state->reference_cubes_v[2].vertices[1].z = _mm_set1_ps(10+1);
-
-
-    Vertex4_to_V2Screen((Vertex4 *)state->reference_cubes_v, 
-                        &state->camera, buffer->width, buffer->height, 
-                        arraysize(state->reference_cubes_v)*2, 
-                        state->reference_cubes_s);
-
-    for (int i = 0; i < arraysize(state->reference_cubes_s); i+=2) {
-        for (int j = 0; j < 4; ++j) {
-            V2Screen start_pos; 
-            start_pos.x = (int)((float *)&state->reference_cubes_s[i].x)[j];
-            start_pos.y = (int)((float *)&state->reference_cubes_s[i].y)[j];
-
-            V2Screen end_pos;
-            end_pos.x = ((int *)&state->reference_cubes_s[i+1].x)[j];
-            end_pos.y = ((int *)&state->reference_cubes_s[i+1].y)[j];
-            draw_line(buffer, start_pos, end_pos, 0xFFFFFFFF);
-        }
-    }
+    renderer_draw_background(buffer); 
 
     float timestep = TIME_FOR_FRAME;
     {
         V3 move = {};
+        if (input->action) {
+            
+            state->move_speed *= 2.0f;
+            if (state->move_speed >= 30) {
+                state->move_speed = 0.01f;
+            }
+        }
 
         if (input->camleft) {
             state->camera.theta_y -= PI/100.0f;
@@ -210,7 +195,7 @@ void game_update_and_render(GameMemory *memory,
 
         }
 
-        state->camera.pos += 1*v3_norm(move);
+        state->camera.pos += state->move_speed*v3_norm(move);
 
 
 
@@ -249,72 +234,104 @@ void game_update_and_render(GameMemory *memory,
         }
     }
 
+#if 1
     // transform particles
     int cube_count = 0;
     int screen_count = 0;
     for (int i = 0;i < state->particle_count; i++) {
-        uint32_t color = 0xFFFF0000;
-
-        if (i % 2 == 0) {
-            color = 0xFFFF00FF;
-        }
-            
+        V2Screen4 screen[2];
         Vertex4Cube *cube = &state->particle_vert[cube_count++];
-        V2Screen4 *screen1 = &state->particle_screen[screen_count++];
-        V2Screen4 *screen2 = &state->particle_screen[screen_count++];
+        Triangle triangles[12];
+        triangles[0].v1 = 0;
+        triangles[0].v2 = 2;
+        triangles[0].v3 = 4;
+
+        triangles[1].v1 = 2;
+        triangles[1].v2 = 6;
+        triangles[1].v3 = 4;
+
+        triangles[2].v1 = 4;
+        triangles[2].v2 = 6;
+        triangles[2].v3 = 5;
+
+        triangles[3].v1 = 6;
+        triangles[3].v2 = 7;
+        triangles[3].v3 = 5;
+
+        triangles[4].v1 = 5;
+        triangles[4].v2 = 7;
+        triangles[4].v3 = 1;
+
+        triangles[5].v1 = 7;
+        triangles[5].v2 = 3;
+        triangles[5].v3 = 1;
+
+        triangles[6].v1 = 1;
+        triangles[6].v2 = 3;
+        triangles[6].v3 = 0;
+
+        triangles[7].v1 = 3;
+        triangles[7].v2 = 2;
+        triangles[7].v3 = 0;
+
+        triangles[8].v1 = 2;
+        triangles[8].v2 = 3;
+        triangles[8].v3 = 6;
+
+        triangles[9].v1 = 3;
+        triangles[9].v2 = 7;
+        triangles[9].v3 = 6;
+
+        triangles[10].v1 = 0;
+        triangles[10].v2 = 1;
+        triangles[10].v3 = 4;
+
+        triangles[11].v1 = 1;
+        triangles[11].v2 = 5;
+        triangles[11].v3 = 4;
 
         cube->vertices[0].x = _mm_set1_ps(state->particles.pos[i].x);
         cube->vertices[1].x = _mm_set1_ps(state->particles.pos[i].x+1);
 
-        ((float *)&cube->vertices[0].y)[0] = state->particles.pos[i].y;
-        ((float *)&cube->vertices[0].y)[1] = state->particles.pos[i].y;
-        ((float *)&cube->vertices[0].y)[2] = state->particles.pos[i].y+1;
-        ((float *)&cube->vertices[0].y)[3] = state->particles.pos[i].y+1;
-        ((float *)&cube->vertices[1].y)[0] = state->particles.pos[i].y;
-        ((float *)&cube->vertices[1].y)[1] = state->particles.pos[i].y;
-        ((float *)&cube->vertices[1].y)[2] = state->particles.pos[i].y+1;
-        ((float *)&cube->vertices[1].y)[3] = state->particles.pos[i].y+1;
+        cube->vertices[0].y = _mm_set_ps(state->particles.pos[i].y, 
+                                          state->particles.pos[i].y,
+                                          state->particles.pos[i].y+1,
+                                          state->particles.pos[i].y+1);
 
-        ((float *)&cube->vertices[0].z)[0] = state->particles.pos[i].z;
-        ((float *)&cube->vertices[0].z)[1] = state->particles.pos[i].z+1;
-        ((float *)&cube->vertices[0].z)[2] = state->particles.pos[i].z;
-        ((float *)&cube->vertices[0].z)[3] = state->particles.pos[i].z+1;
-        ((float *)&cube->vertices[1].z)[0] = state->particles.pos[i].z;
-        ((float *)&cube->vertices[1].z)[1] = state->particles.pos[i].z+1;
-        ((float *)&cube->vertices[1].z)[2] = state->particles.pos[i].z;
-        ((float *)&cube->vertices[1].z)[3] = state->particles.pos[i].z+1;
+        cube->vertices[1].y = _mm_set_ps(state->particles.pos[i].y, 
+                                          state->particles.pos[i].y,
+                                          state->particles.pos[i].y+1,
+                                          state->particles.pos[i].y+1);
 
-        Vertex4_to_V2Screen(cube->vertices, 
+        cube->vertices[0].z = _mm_set_ps(state->particles.pos[i].z,
+                                         state->particles.pos[i].z+1,
+                                         state->particles.pos[i].z,
+                                         state->particles.pos[i].z+1);
+
+        cube->vertices[1].z = _mm_set_ps(state->particles.pos[i].z,
+                                         state->particles.pos[i].z+1,
+                                         state->particles.pos[i].z,
+                                         state->particles.pos[i].z+1);
+
+        renderer_vertex4_to_v2screen(cube->vertices, 
                             &state->camera, 
                             buffer->width, 
                             buffer->height, 
                             2, 
-                            screen1);
+                            screen);
 
-        for (int j = 0; j < 4; ++j) {
-            V2Screen start_pos;
-            V2Screen end_pos;
 
-            start_pos.x = ((int *)&screen1->x)[j];
-            start_pos.y = ((int *)&screen1->y)[j];
-            end_pos.x = ((int *)&screen2->x)[j];
-            end_pos.y = ((int *)&screen2->y)[j];
-            draw_line(buffer, start_pos, end_pos, 0xFFFFFFFF);
+        uint32_t color = 0xFFFFFFFF;
+        renderer_v2screen4_draw_triangles_filled(buffer, 
+                              screen, 
+                              triangles, 
+                              &color,
+                              1,
+                              12);
 
-            start_pos.x = ((int *)&screen1->x)[j];
-            start_pos.y = ((int *)&screen2->y)[j];
-            end_pos.x = ((int *)&screen1->x)[j];
-            end_pos.y = ((int *)&screen2->y)[j];
-            draw_line(buffer, start_pos, end_pos, 0xFFFFFFFF);
-
-            start_pos.x = ((int *)&screen2->x)[j];
-            start_pos.y = ((int *)&screen1->y)[j];
-            end_pos.x = ((int *)&screen2->x)[j];
-            end_pos.y = ((int *)&screen1->y)[j];
-            draw_line(buffer, start_pos, end_pos, 0xFFFFFFFF);
-
-        }
+       // V2Screen4_draw_triangles(buffer, screen, triangles, 0xFFFF00FF, 12);
     }
+#endif
 
     //draw every spring
     for (int i = 0;i < state->spring_count; ++i) {
@@ -371,7 +388,7 @@ void game_update_and_render(GameMemory *memory,
 
             int right_grid_pos = (int)floorf((particle->pos.x + 
                         particle->radius) / 
-                    (WORLD_WIDTH / 16.0f) + 8);
+                   (WORLD_WIDTH / 16.0f) + 8);
 
             particle->spatial_mask = (1 << (left_grid_pos-1));
             particle->spatial_mask = particle->spatial_mask | (1 << (right_grid_pos-1));
