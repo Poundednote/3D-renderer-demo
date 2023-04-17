@@ -2,6 +2,15 @@
 #include <emmintrin.h>
 #include <stdint.h>
 
+#define BLACK 0;
+#define WHITE 0xFFFFFFFF
+#define RED 0xFFFF0000
+#define GREEN 0xFF00FF00
+#define BLUE 0xFF0000FF
+#define YELLOW 0xFFFFFF00
+#define PINK 0xFFFF00FF
+#define CYAN 0xFF00FFFF
+
 struct OffscreenBuffer {
     void *memory;
     int height;
@@ -47,6 +56,7 @@ struct Triangle {
     int v1;
     int v2;
     int v3;
+    uint32_t color;
 };
 
 struct CubeMesh {

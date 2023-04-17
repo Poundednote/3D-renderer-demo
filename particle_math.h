@@ -7,12 +7,10 @@ struct V3 {
 
     inline V3 &operator+=(V3 a);
     inline V3 &operator-=(V3 a);
-    float &operator[](int index) {return((&x)[index]);}
 };
  
 static inline V3 v3(float x, float y, float z) {
     V3 result;
-
     result.x = x;
     result.y = y;
     result.z = z;

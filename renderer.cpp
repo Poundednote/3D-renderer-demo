@@ -115,8 +115,6 @@ static bool renderer_v3_should_clip(V3 pos,
 
     if (pos.z < camera->znear) return true;
     if (pos.z > camera->zfar) return true;
-    if (fabs(pos.x) > max_x) return true;
-    if (fabs(pos.y) > max_y) return true;
 
     return false;
 }
@@ -151,36 +149,56 @@ static V2Screen renderer_world_vertex_to_screen(V3 world_pos,
     return result;
 }
 
-static void renderer_world_vertices_to_screen(V3 *in, 
-                                              GameCamera *camera, 
-                                              int count, 
-                                              int buffer_width, 
-                                              int buffer_height,
-                                              V2Screen *out) {
+static void renderer_world_vertices_to_screen_and_cull(V3 *in_vertices, 
+                                                       int v_count, 
+                                                       Triangle *in_triangles,
+                                                       int tri_count,
+                                                       GameCamera *camera, 
+                                                       int buffer_width, 
+                                                       int buffer_height,
+                                                       Triangle *out_triangles,
+                                                       int *tri_out_count,
+                                                       V2Screen *out_vertices,
+                                                       int *out_vertices_count) {
 
-    for (int i = 0; i < count; ++i) {
-        V2Screen *screen_pos = &out[i];
 
-        V3 relative_pos = v3_rotate_q4(in[i]-camera->pos, 
+
+    for (int vertex = 0; vertex < v_count; ++vertex) {
+        in_vertices[vertex] = v3_rotate_q4(in_vertices[vertex]-camera->pos, 
                 (rotation_q4(-camera->theta_x, v3(1,0,0))*
                  rotation_q4(-camera->theta_y, v3(0,1,0))));
+    }
 
-        float aspect_ratio = ((float)buffer_width/(float)buffer_height);
+    *tri_out_count = 0;
+    for (int triangle = 0; triangle < tri_count; triangle++) {
+        Triangle current = in_triangles[triangle];
 
-        if (renderer_v3_should_clip(relative_pos, camera, aspect_ratio)) {
-            out->x = 0xFFFFFFFF;
-            out->y = 0xFFFFFFFF;
+        if (v3_dot(in_vertices[current.v1]-camera->pos, 
+                    v3_cross(in_vertices[current.v2]-in_vertices[current.v1], 
+                        in_vertices[current.v3]-in_vertices[current.v1])) >= 0) {
             continue;
         }
+        out_triangles[(*tri_out_count)++] = current;
+    }
 
+    *out_vertices_count = 0;
+    float aspect_ratio = ((float)buffer_width/(float)buffer_height);
+    for (int i = 0; i < v_count; ++i) {
+        V3 relative_pos = in_vertices[i];
+
+        if (renderer_v3_should_clip(relative_pos, camera, aspect_ratio)) {
+            continue;
+        }
+        
         float normal_x = (relative_pos.x*(camera->znear/relative_pos.z)) / 
             ((tanf(camera->fov/2.0f)*camera->znear)*aspect_ratio);
 
         float normal_y = (relative_pos.y*(camera->znear/relative_pos.z)) / 
             (tanf(camera->fov/2.0f)*camera->znear);
 
-        screen_pos->x = (int)(normal_x * (buffer_width/2.0f) + buffer_width/2.0f);
-        screen_pos->y = (int)(-normal_y * (buffer_height/2.0f) + buffer_height/2.0f);
+        out_vertices[*out_vertices_count].x = (int)(normal_x * (buffer_width/2.0f) + buffer_width/2.0f);
+        out_vertices[*out_vertices_count].y = (int)(-normal_y * (buffer_height/2.0f) + buffer_height/2.0f);
+        (*out_vertices_count)++;
 
     }
 }
@@ -190,8 +208,8 @@ static inline bool renderer_v2screen_isinvalid(V2Screen screen,
                                           int screen_height) {
 
     if (screen.x == 0xFFFFFFFF || screen.y == 0xFFFFFFFF) return true;
-    if (screen.x < 0 || screen.x > 1280) return true;
-    if (screen.y < 0 || screen.y > 720) return true;
+    if (screen.x < 0 || screen.x > screen_width) return true;
+    if (screen.y < 0 || screen.y > screen_height) return true;
 
     return false;
 }
@@ -352,14 +370,6 @@ static void renderer_v2screen4_draw_triangles_wireframe(OffscreenBuffer *buffer,
     }
 }
 
-static bool renderer_triangle_isculled(Triangle triangle) {
-    if (triangle.v1 == 0xFFFFFFFF) return true;
-    if (triangle.v2 == 0xFFFFFFFF) return true;
-    if (triangle.v3 == 0xFFFFFFFF) return true;
-
-    return false;
-}
-
 static void renderer_draw_flat_top_triangle(OffscreenBuffer *buffer,
                                       V2Screen v1,
                                       V2Screen v2,
@@ -418,17 +428,13 @@ static void renderer_draw_flat_bottom_triangle(OffscreenBuffer *buffer,
 static void renderer_draw_triangles_filled(OffscreenBuffer *buffer,
                                            V2Screen *vertices,
                                            Triangle *triangles,
-                                           uint32_t *colors,
                                            int count) {
 
     for (int i = 0; i < count; ++i) {
-        if (renderer_triangle_isculled(triangles[i])) {
-            continue;
-        }
-        
         V2Screen v1 = vertices[triangles[i].v1];
         V2Screen v2 = vertices[triangles[i].v2];
         V2Screen v3 = vertices[triangles[i].v3];
+        uint32_t color = triangles[i].color;
 
         if (renderer_v2screen_isinvalid(v1, buffer->width, buffer->height)) {
             continue;
@@ -462,20 +468,20 @@ static void renderer_draw_triangles_filled(OffscreenBuffer *buffer,
         }
 
         if (v3.y == v2.y) {
-            renderer_draw_flat_top_triangle(buffer, v1, v2, v3, colors[i]);
+            renderer_draw_flat_top_triangle(buffer, v1, v2, v3, color);
             continue;
         }
 
         if (v1.y == v2.y) {
-            renderer_draw_flat_bottom_triangle(buffer, v1, v2, v3, colors[i]);
+            renderer_draw_flat_bottom_triangle(buffer, v1, v2, v3, color);
             continue;
         }
 
         V2Screen v4;
         v4.x = (int)(v3.x - (((float)(v3.y-v2.y)/(float)(v3.y-v1.y))*(float)(v3.x-v1.x)));
         v4.y = v2.y;
-        renderer_draw_flat_top_triangle(buffer, v1, v2, v4, colors[i]);
-        renderer_draw_flat_bottom_triangle(buffer, v2, v4, v3, colors[i]);
+        renderer_draw_flat_top_triangle(buffer, v1, v2, v4, color);
+        renderer_draw_flat_bottom_triangle(buffer, v2, v4, v3, color);
     }
 
 }

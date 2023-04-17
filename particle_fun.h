@@ -108,8 +108,19 @@ struct GameState {
 
 #if SSE
     Vertex4Cube particle_vert[MAX_PARTICLES];
-#endif
+#else
+    int vertex_count;
+    V3 vertex_list[65535];
+    
+    int screen_vertex_count;
+    V2Screen screen_vertices[65535];
 
+    int polygon_count;
+    Triangle polygons[65535];
+
+    int draw_count;
+    Triangle polygons_to_draw[65535];
+#endif
 
 #if DEBUG_MODE
     float move_speed;
