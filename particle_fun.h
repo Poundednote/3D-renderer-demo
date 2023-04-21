@@ -58,7 +58,7 @@ struct Spring {
 
 struct GameInput {
 
-    V2Screen mouse_pos;
+    V3Screen mouse_pos;
 
     bool mouse_lbutton_down;
     bool mouse_lclickdrag;
@@ -80,7 +80,7 @@ struct GameInput {
     bool camzoomout;
 
 
-    V2Screen start_click_pos;
+    V3Screen start_click_pos;
     
 };
 
@@ -88,7 +88,7 @@ struct GameMemory {
     bool is_initialised;
     uint32_t permanent_stoarage_size;
 
-    void* permanent_storage;
+    void *permanent_storage;
 };
 
 struct GameState {
@@ -113,13 +113,14 @@ struct GameState {
     V3 vertex_list[65535];
     
     int screen_vertex_count;
-    V2Screen screen_vertices[65535];
+    V3Screen screen_vertices[65535];
 
     int polygon_count;
     Triangle polygons[65535];
 
     int draw_count;
     Triangle polygons_to_draw[65535];
+
 #endif
 
 #if DEBUG_MODE

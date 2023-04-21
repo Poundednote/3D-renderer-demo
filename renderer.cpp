@@ -7,7 +7,7 @@ static void renderer_vertex4_to_v2screen(Vertex4 *in,
                          int screen_width,
                          int screen_height,
                          int count, 
-                         V2Screen4 *out) {
+                         V3Screen4 *out) {
 
     Quaternion rotation = q4_norm(rotation_q4(-camera->theta_x, v3(1,0,0))*
                            rotation_q4(-camera->theta_y, v3(0,1,0)));
@@ -115,16 +115,18 @@ static bool renderer_v3_should_clip(V3 pos,
 
     if (pos.z < camera->znear) return true;
     if (pos.z > camera->zfar) return true;
+    if (fabs(pos.x) > max_x) return true;
+    if (fabs(pos.y) > max_y) return true;
 
     return false;
 }
 
-static V2Screen renderer_world_vertex_to_screen(V3 world_pos, 
+static V3Screen renderer_world_vertex_to_screen(V3 world_pos, 
                                                 GameCamera *camera,
                                                 int buffer_width, 
                                                 int buffer_height) {
 
-    V2Screen result;
+    V3Screen result;
 
     V3 relative_pos = v3_rotate_q4(world_pos-camera->pos, 
             (rotation_q4(-camera->theta_x, v3(1,0,0))*
@@ -138,11 +140,9 @@ static V2Screen renderer_world_vertex_to_screen(V3 world_pos,
         return result;
     }
 
-    float normal_x = (relative_pos.x*(camera->znear/relative_pos.z)) / 
-        ((tanf(camera->fov/2.0f)*camera->znear)*aspect_ratio);
+    float normal_x = (relative_pos.x / relative_pos.z*tanf(camera->fov/2.0f)*aspect_ratio*camera->znear); 
 
-    float normal_y = (relative_pos.y*(camera->znear/relative_pos.z)) / 
-        (tanf(camera->fov/2.0f)*camera->znear);
+    float normal_y = (relative_pos.y / relative_pos.z*tanf(camera->fov/2.0f)*camera->znear); 
 
     result.x = (int)(normal_x * (buffer_width/2.0f) + buffer_width/2.0f);
     result.y = (int)(-normal_y * (buffer_height/2.0f) + buffer_height/2.0f);
@@ -158,8 +158,9 @@ static void renderer_world_vertices_to_screen_and_cull(V3 *in_vertices,
                                                        int buffer_height,
                                                        Triangle *out_triangles,
                                                        int *tri_out_count,
-                                                       V2Screen *out_vertices,
-                                                       int *out_vertices_count) {
+                                                       V3Screen *out_vertices,
+                                                       int *out_vertices_count,
+                                                       OffscreenBuffer *zbuffer) {
 
 
 
@@ -169,41 +170,56 @@ static void renderer_world_vertices_to_screen_and_cull(V3 *in_vertices,
                  rotation_q4(-camera->theta_y, v3(0,1,0))));
     }
 
+
     *tri_out_count = 0;
     for (int triangle = 0; triangle < tri_count; triangle++) {
         Triangle current = in_triangles[triangle];
 
-        if (v3_dot(in_vertices[current.v1]-camera->pos, 
+        if (v3_dot(in_vertices[current.v1], 
                     v3_cross(in_vertices[current.v2]-in_vertices[current.v1], 
                         in_vertices[current.v3]-in_vertices[current.v1])) >= 0) {
             continue;
         }
+
         out_triangles[(*tri_out_count)++] = current;
     }
 
-    *out_vertices_count = 0;
     float aspect_ratio = ((float)buffer_width/(float)buffer_height);
     for (int i = 0; i < v_count; ++i) {
         V3 relative_pos = in_vertices[i];
 
         if (renderer_v3_should_clip(relative_pos, camera, aspect_ratio)) {
+            out_vertices[i].x = 0xFFFFFFFF;
+            out_vertices[i].y = 0xFFFFFFFF;
             continue;
         }
         
-        float normal_x = (relative_pos.x*(camera->znear/relative_pos.z)) / 
-            ((tanf(camera->fov/2.0f)*camera->znear)*aspect_ratio);
+        float normal_x = (relative_pos.x/relative_pos.z) / 
+                         (tanf(camera->fov/2.0f)*aspect_ratio);
 
-        float normal_y = (relative_pos.y*(camera->znear/relative_pos.z)) / 
-            (tanf(camera->fov/2.0f)*camera->znear);
+        float normal_y = (relative_pos.y/relative_pos.z) / 
+                         (tanf(camera->fov/2.0f));
 
-        out_vertices[*out_vertices_count].x = (int)(normal_x * (buffer_width/2.0f) + buffer_width/2.0f);
-        out_vertices[*out_vertices_count].y = (int)(-normal_y * (buffer_height/2.0f) + buffer_height/2.0f);
-        (*out_vertices_count)++;
+        int x = (int)(normal_x * (buffer_width/2.0f) + buffer_width/2.0f);
+        int y = (int)(-normal_y * (buffer_height/2.0f) + buffer_height/2.0f);
+        out_vertices[i].x = x;
+        out_vertices[i].y = y;
+        out_vertices[i].z = relative_pos.z;
 
+        uint32_t *depth_value = (uint32_t *)((uint8_t *)zbuffer->memory + 
+                                 x*zbuffer->bytes_per_pixel + y*zbuffer->pitch);
+
+        if (*depth_value == 0xFFFFFFFF) {
+            *depth_value = *(uint32_t *)&relative_pos.z;
+        }
+
+        else if (*(float *)depth_value > relative_pos.z) {
+            *depth_value = *(uint32_t *)&relative_pos.z;
+        }
     }
 }
 
-static inline bool renderer_v2screen_isinvalid(V2Screen screen,
+static inline bool renderer_v2screen_isinvalid(V3Screen screen,
                                           int screen_width,
                                           int screen_height) {
 
@@ -228,10 +244,10 @@ static void renderer_draw_background(OffscreenBuffer *buffer) {
 }
 
 static void renderer_draw_line(OffscreenBuffer *buffer,
-                 V2Screen start,
-                 V2Screen end,
-                 uint32_t color) {
-    
+                               V3Screen start,
+                               V3Screen end,
+                               uint32_t color) {
+            
 
     if (renderer_v2screen_isinvalid(start, buffer->width, buffer->height)) {
         return;
@@ -242,13 +258,14 @@ static void renderer_draw_line(OffscreenBuffer *buffer,
     }
 
     if (start.x > end.x) {
-        V2Screen temp = end;
+        V3Screen temp = end;
         end = start;
         start = temp;
     }
 
     int dx = end.x - start.x;
     int dy = end.y - start.y;
+    float dz = end.z - start.z;
     uint32_t *endofbuffer = (uint32_t *)((uint8_t *)buffer->memory + (buffer->width*buffer->height*buffer->bytes_per_pixel));
 
     // case where the gradient is below 1;
@@ -268,11 +285,12 @@ static void renderer_draw_line(OffscreenBuffer *buffer,
     float y_inc = (float)dy/(float)step;
 
     for (int draw = 0; draw < step; ++draw) {
-        uint32_t *pixel = (uint32_t *)((uint8_t *)buffer->memory + 
-                (int)roundf(x)*buffer->bytes_per_pixel +
-                (int)roundf(y)*buffer->pitch);
-        if ((pixel < endofbuffer) && (pixel >= buffer->memory)) {
-            *pixel = color;
+        int offset = (int)roundf(x)*buffer->bytes_per_pixel + 
+                     (int)roundf(y)*buffer->pitch;
+
+            uint32_t *pixel = (uint32_t *)((uint8_t *)buffer->memory + offset);
+            if ((pixel < endofbuffer) && (pixel >= buffer->memory)) {
+                *pixel = color;
         }
 
         x += x_inc;
@@ -280,21 +298,12 @@ static void renderer_draw_line(OffscreenBuffer *buffer,
     }
 }
 
-static void renderer_transform_and_draw_line(OffscreenBuffer *buffer,
-                 V3 v_start,
-                 V3 v_end,
-                 GameCamera *camera,
-                 uint32_t color) {
-
-    V2Screen start = renderer_world_vertex_to_screen(v_start, 
-                                                     camera, 
-                                                     buffer->width, 
-                                                     buffer->height);
-
-    V2Screen end = renderer_world_vertex_to_screen(v_end, 
-                                                   camera, 
-                                                   buffer->width, 
-                                                   buffer->height);
+static void renderer_draw_line_zcull(OffscreenBuffer *buffer,
+                                     OffscreenBuffer *zbuffer,
+                                     V3Screen start,
+                                     V3Screen end,
+                                     uint32_t color) {
+            
 
     if (renderer_v2screen_isinvalid(start, buffer->width, buffer->height)) {
         return;
@@ -304,8 +313,15 @@ static void renderer_transform_and_draw_line(OffscreenBuffer *buffer,
         return;
     }
 
+    if (start.x > end.x) {
+        V3Screen temp = end;
+        end = start;
+        start = temp;
+    }
+
     int dx = end.x - start.x;
     int dy = end.y - start.y;
+    float dz = end.z - start.z;
     uint32_t *endofbuffer = (uint32_t *)((uint8_t *)buffer->memory + (buffer->width*buffer->height*buffer->bytes_per_pixel));
 
     // case where the gradient is below 1;
@@ -320,27 +336,33 @@ static void renderer_transform_and_draw_line(OffscreenBuffer *buffer,
 
     float x = (float)start.x;
     float y = (float)start.y;
+    float z = start.z;
 
     float x_inc = (float)dx/(float)step;
     float y_inc = (float)dy/(float)step;
+    float z_inc = (float)dz/(float)step;
 
     for (int draw = 0; draw < step; ++draw) {
-        uint32_t *pixel = (uint32_t *)((uint8_t *)buffer->memory + 
-                (int)roundf(x)*buffer->bytes_per_pixel +
-                (int)roundf(y)*buffer->pitch);
-        if ((pixel < endofbuffer) && (pixel >= buffer->memory)) {
-            *pixel = color;
+        int offset = (int)roundf(x)*buffer->bytes_per_pixel + 
+                     (int)roundf(y)*buffer->pitch;
+
+        if (*((float *)(uint8_t *)zbuffer->memory + offset) < z) {
+            uint32_t *pixel = (uint32_t *)((uint8_t *)buffer->memory + offset);
+            if ((pixel < endofbuffer) && (pixel >= buffer->memory)) {
+                *pixel = color;
+            }
         }
 
         x += x_inc;
         y += y_inc;
+        z += z_inc;
     }
 }
 
 static void renderer_draw_triangle_wireframe(OffscreenBuffer *buffer,
-                           V2Screen v1, 
-                           V2Screen v2, 
-                           V2Screen v3,
+                           V3Screen v1, 
+                           V3Screen v2, 
+                           V3Screen v3,
                            uint32_t color) {
 
     renderer_draw_line(buffer, v1, v2, color);
@@ -349,7 +371,7 @@ static void renderer_draw_triangle_wireframe(OffscreenBuffer *buffer,
 }
 
 static void renderer_v2screen4_draw_triangles_wireframe(OffscreenBuffer *buffer,
-                      V2Screen4 *vertices,
+                      V3Screen4 *vertices,
                       Triangle *triangles,
                       uint32_t color,
                       int count) {
@@ -362,18 +384,18 @@ static void renderer_v2screen4_draw_triangles_wireframe(OffscreenBuffer *buffer,
         int offset1 = triangles->v1 % 4;
         int offset2 = triangles->v3 % 4;
         int offset3 = triangles->v2 % 4;
-        V2Screen vertex1 = {((int *)&vertices[index1].x)[offset1], ((int* )&vertices[index1].y)[offset1]};
-        V2Screen vertex2 = {((int *)&vertices[index2].x)[offset2], ((int *)&vertices[index2].y)[offset2]};
-        V2Screen vertex3 = {((int *)&vertices[index3].x)[offset3], ((int *)&vertices[index3].y)[offset3]};
+        V3Screen vertex1 = {((int *)&vertices[index1].x)[offset1], ((int* )&vertices[index1].y)[offset1]};
+        V3Screen vertex2 = {((int *)&vertices[index2].x)[offset2], ((int *)&vertices[index2].y)[offset2]};
+        V3Screen vertex3 = {((int *)&vertices[index3].x)[offset3], ((int *)&vertices[index3].y)[offset3]};
         renderer_draw_triangle_wireframe(buffer, vertex1, vertex2, vertex3, color);
         triangles++;
     }
 }
 
 static void renderer_draw_flat_top_triangle(OffscreenBuffer *buffer,
-                                      V2Screen v1,
-                                      V2Screen v2,
-                                      V2Screen v3,
+                                      V3Screen v1,
+                                      V3Screen v2,
+                                      V3Screen v3,
                                       uint32_t color) {
         
     float x_inc_left = (float)(v1.x-v2.x)/(float)(v1.y-v2.y);
@@ -383,11 +405,11 @@ static void renderer_draw_flat_top_triangle(OffscreenBuffer *buffer,
     float x_right = (float)v3.x;
 
     for (int y = v2.y; y <= v1.y; ++y) {
-        V2Screen left;
+        V3Screen left;
         left.x = (int)x_left;
         left.y = y;
 
-        V2Screen right;
+        V3Screen right;
         right.x = (int)x_right;
         right.y = y;
         renderer_draw_line(buffer, left, right, color);
@@ -399,10 +421,11 @@ static void renderer_draw_flat_top_triangle(OffscreenBuffer *buffer,
 }
 
 static void renderer_draw_flat_bottom_triangle(OffscreenBuffer *buffer,
-                                   V2Screen v1,
-                                   V2Screen v2,
-                                   V2Screen v3,
-                                   uint32_t color) {
+                                               V3Screen v1,
+                                               V3Screen v2,
+                                               V3Screen v3,
+                                               uint32_t color) {
+
     float x_inc_left = (float)(v3.x-v2.x)/(float)(v3.y-v2.y);
     float x_inc_right = (float)(v3.x-v1.x)/(float)(v3.y-v1.y);
 
@@ -410,11 +433,11 @@ static void renderer_draw_flat_bottom_triangle(OffscreenBuffer *buffer,
     float x_right = (float)v1.x;
     
     for (int y = v2.y; y >= v3.y; --y) {
-        V2Screen left;
+        V3Screen left;
         left.x = (int)x_left;
         left.y = y;
 
-        V2Screen right;
+        V3Screen right;
         right.x = (int)x_right;
         right.y = y;
         renderer_draw_line(buffer, left, right, color);
@@ -426,14 +449,14 @@ static void renderer_draw_flat_bottom_triangle(OffscreenBuffer *buffer,
 
 
 static void renderer_draw_triangles_filled(OffscreenBuffer *buffer,
-                                           V2Screen *vertices,
+                                           V3Screen *vertices,
                                            Triangle *triangles,
                                            int count) {
 
     for (int i = 0; i < count; ++i) {
-        V2Screen v1 = vertices[triangles[i].v1];
-        V2Screen v2 = vertices[triangles[i].v2];
-        V2Screen v3 = vertices[triangles[i].v3];
+        V3Screen v1 = vertices[triangles[i].v1];
+        V3Screen v2 = vertices[triangles[i].v2];
+        V3Screen v3 = vertices[triangles[i].v3];
         uint32_t color = triangles[i].color;
 
         if (renderer_v2screen_isinvalid(v1, buffer->width, buffer->height)) {
@@ -450,19 +473,19 @@ static void renderer_draw_triangles_filled(OffscreenBuffer *buffer,
 
         //sort vertexes 
         if (v3.y > v2.y) {
-            V2Screen temp = v2;
+            V3Screen temp = v2;
             v2 = v3;
             v3 = temp;
         }
 
         if (v2.y > v1.y) {
-            V2Screen temp = v1;
+            V3Screen temp = v1;
             v1 = v2;
             v2 = temp;
         }
 
         if (v3.y > v2.y) {
-            V2Screen temp = v2;
+            V3Screen temp = v2;
             v2 = v3;
             v3 = temp;
         }
@@ -477,7 +500,7 @@ static void renderer_draw_triangles_filled(OffscreenBuffer *buffer,
             continue;
         }
 
-        V2Screen v4;
+        V3Screen v4;
         v4.x = (int)(v3.x - (((float)(v3.y-v2.y)/(float)(v3.y-v1.y))*(float)(v3.x-v1.x)));
         v4.y = v2.y;
         renderer_draw_flat_top_triangle(buffer, v1, v2, v4, color);
@@ -488,12 +511,11 @@ static void renderer_draw_triangles_filled(OffscreenBuffer *buffer,
 
 #if 0
 static void renderer_v2screen4_draw_triangles_filled(OffscreenBuffer *buffer,
-                                                    V2Screen4 *vertices,
+                                                    V3Screen4 *vertices,
                                                     Triangle *triangles,
                                                     uint32_t *colors,
                                                     int colors_size,
                                                     int tricount) {
-
 
     int color_index = 0;
     for (int i = 0; i < tricount; ++i) {
@@ -504,9 +526,9 @@ static void renderer_v2screen4_draw_triangles_filled(OffscreenBuffer *buffer,
         int offset1 = triangles->v1 % 4;
         int offset2 = triangles->v3 % 4;
         int offset3 = triangles->v2 % 4;
-        V2Screen vertex1 = {((int *)&vertices[index1].x)[offset1], ((int *)&vertices[index1].y)[offset1]};
-        V2Screen vertex2 = {((int *)&vertices[index2].x)[offset2], ((int *)&vertices[index2].y)[offset2]};
-        V2Screen vertex3 = {((int *)&vertices[index3].x)[offset3], ((int *)&vertices[index3].y)[offset3]};
+        V3Screen vertex1 = {((int *)&vertices[index1].x)[offset1], ((int *)&vertices[index1].y)[offset1]};
+        V3Screen vertex2 = {((int *)&vertices[index2].x)[offset2], ((int *)&vertices[index2].y)[offset2]};
+        V3Screen vertex3 = {((int *)&vertices[index3].x)[offset3], ((int *)&vertices[index3].y)[offset3]};
         renderer_draw_triangles_filled(buffer, vertex1, vertex2, vertex3, colors[color_index]);
         if (i % 2) {
             color_index++;

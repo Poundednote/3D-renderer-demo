@@ -119,6 +119,7 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE prev_instance,
     vid_buf.bitmap_memory = VirtualAlloc(0, bitmap_memory_size, 
                                          MEM_RESERVE|MEM_COMMIT, 
                                          PAGE_READWRITE);
+
     GameMemory game_memory = {};
     game_memory.permanent_stoarage_size = megabytes(64);
     game_memory.permanent_storage = VirtualAlloc(
@@ -127,10 +128,19 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE prev_instance,
 
     OffscreenBuffer game_buffer = {};
     game_buffer.memory = vid_buf.bitmap_memory;
-    game_buffer.height = vid_buf.height;
     game_buffer.width = vid_buf.width;
+    game_buffer.height = vid_buf.height;
     game_buffer.pitch = vid_buf.pitch;
     game_buffer.bytes_per_pixel = vid_buf.bytes_per_pixel;
+
+    OffscreenBuffer zbuffer = {};
+    zbuffer.width = game_buffer.width;
+    zbuffer.height = game_buffer.height;
+    zbuffer.pitch = game_buffer.pitch;
+    zbuffer.bytes_per_pixel = game_buffer.bytes_per_pixel;
+    
+    uint32_t zbuffer_size = zbuffer.width*zbuffer.height*zbuffer.bytes_per_pixel;
+    zbuffer.memory = VirtualAlloc(0, zbuffer_size, MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
     
     LARGE_INTEGER previous_counter; 
     QueryPerformanceCounter(&previous_counter);
@@ -331,6 +341,7 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE prev_instance,
         }
 
         game_update_and_render(&game_memory, 
+                               &zbuffer,
                                &game_buffer, 
                                &input);
 

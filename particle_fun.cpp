@@ -75,22 +75,23 @@ inline static void spring_apply_force(Spring *spring) {
 
 void game_update_and_render(GameMemory *memory, 
                             OffscreenBuffer *buffer, 
+                            OffscreenBuffer *zbuffer,
                             GameInput *input) {
 
 
     GameState *state = (GameState *)memory->permanent_storage;
     if (!memory->is_initialised) {
+        uint32_t zbuffer_size = zbuffer->width * zbuffer->height;
+        uint32_t *depth_value = ((uint32_t *)zbuffer->memory);
+        for (uint32_t i = 0; i < zbuffer_size; ++i) {
+            *depth_value++ = 0xFFFFFFFF;
+        }
+
         //set GRAVITY
         gravity.y = -9.81f; 
 
-        //init particle system
-        int n_particles = 10;
-        float pad = WORLD_WIDTH/(float)n_particles;
-        V3 def_pos = {};
-        def_pos.x = WORLD_LEFT+1; 
-        def_pos.y = 0;
-
 #if DEBUG_MODE
+        create_random_particles(state, 1000, 120093);
         create_side_by_side_particels(state, 10, v3(0,0,0));
 #endif
         
@@ -133,17 +134,18 @@ void game_update_and_render(GameMemory *memory,
         memory->is_initialised = true;
     }
 
+
 #if DEBUG_MODE
     if (state->frame_counter >= GAME_UPDATE_HZ) {
         state->frame_counter = 0;
     }
 #endif
 
+    renderer_draw_background(buffer); 
     state->vertex_count = 0;
     state->screen_vertex_count = 0;
     state->polygon_count = 0;
     state->draw_count = 0;
-    renderer_draw_background(buffer); 
 
     float timestep = TIME_FOR_FRAME;
     {
@@ -156,7 +158,7 @@ void game_update_and_render(GameMemory *memory,
         }
 
         if (input->camleft) {
-            state->camera.theta_y -= PI/100.0f;
+            state->camera;
         }
 
         if (input->camright) {
@@ -284,7 +286,7 @@ void game_update_and_render(GameMemory *memory,
         triangle0->color = WHITE;
 
         triangle1->v1  = vertex2;
-        triangle1->v2  = vertex7;
+        triangle1->v2  = vertex6;
         triangle1->v3  = vertex4;
         triangle1->color = WHITE;
 
@@ -330,7 +332,7 @@ void game_update_and_render(GameMemory *memory,
 
         triangle10->v1  = vertex1;
         triangle10->v2  = vertex0;
-        triangle10->v3  = vertex4;
+        triangle10->v3  = vertex5;
         triangle10->color = CYAN;
 
         triangle11->v1  = vertex0;
@@ -563,7 +565,6 @@ void game_update_and_render(GameMemory *memory,
             //zero forces
             state->particles.f_accumulator[i] = {}; 
             state->particles.f_accumulator[i] += -(COEFFICIENT_OF_DRAG*state->particles.vel[i]); 
-            state->particles.f_accumulator[i] += gravity;
         }
 
         // apply springs forces
@@ -600,7 +601,8 @@ void game_update_and_render(GameMemory *memory,
                                                   state->polygons_to_draw,
                                                   &state->draw_count,
                                                   state->screen_vertices,
-                                                  &state->screen_vertex_count);
+                                                  &state->screen_vertex_count,
+                                                  zbuffer);
 
 
 
