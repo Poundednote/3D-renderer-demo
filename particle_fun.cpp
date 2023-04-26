@@ -46,13 +46,14 @@ static void create_random_particles(GameState *state,
 #if DEBUG_MODE
 static void create_side_by_side_particels(GameState *state, 
                                     int number_of_particles, 
+                                    V3 pad,
                                     V3 start) {
 
     for (int i = 0; i < number_of_particles; i++) { 
         //assert(state->particle_count < arraysize(state->particles));
         state->particles.mass[state->particle_count] = 1;
         state->particles.radius[state->particle_count] = state->particles.mass[state->particle_count];
-        state->particles.pos[state->particle_count].x = (10*i)+start.x;
+        state->particles.pos[state->particle_count] = ((float)i*pad)+start;
         state->particles.f_accumulator[state->particle_count] = {};
 
         state->particle_count++;
@@ -81,18 +82,14 @@ void game_update_and_render(GameMemory *memory,
 
     GameState *state = (GameState *)memory->permanent_storage;
     if (!memory->is_initialised) {
-        uint32_t zbuffer_size = zbuffer->width * zbuffer->height;
-        uint32_t *depth_value = ((uint32_t *)zbuffer->memory);
-        for (uint32_t i = 0; i < zbuffer_size; ++i) {
-            *depth_value++ = 0xFFFFFFFF;
-        }
-
         //set GRAVITY
         gravity.y = -9.81f; 
 
 #if DEBUG_MODE
         create_random_particles(state, 1000, 120093);
-        create_side_by_side_particels(state, 10, v3(0,0,0));
+        create_side_by_side_particels(state, 10, v3(10,0,0), v3(0,0,0));
+        create_side_by_side_particels(state, 10, v3(0,10,0), v3(0,0,0));
+        create_side_by_side_particels(state, 10, v3(0,0,10), v3(0,0,0));
 #endif
         
 #if 0
@@ -142,6 +139,14 @@ void game_update_and_render(GameMemory *memory,
 #endif
 
     renderer_draw_background(buffer); 
+
+    //clear z buffer every frame
+    uint32_t zbuffer_size = zbuffer->width * zbuffer->height;
+    float *depth_value = ((float *)zbuffer->memory);
+    for (uint32_t i = 0; i < zbuffer_size; ++i) {
+        *depth_value++ = FLT_MAX;
+    }
+
     state->vertex_count = 0;
     state->screen_vertex_count = 0;
     state->polygon_count = 0;
@@ -158,7 +163,7 @@ void game_update_and_render(GameMemory *memory,
         }
 
         if (input->camleft) {
-            state->camera;
+            state->camera.theta_y -= PI/100.0f;
         }
 
         if (input->camright) {
@@ -601,12 +606,11 @@ void game_update_and_render(GameMemory *memory,
                                                   state->polygons_to_draw,
                                                   &state->draw_count,
                                                   state->screen_vertices,
-                                                  &state->screen_vertex_count,
-                                                  zbuffer);
-
+                                                  state->screen_vertex_count);
 
 
        renderer_draw_triangles_filled(buffer,
+                                      zbuffer,
                                       state->screen_vertices,
                                       state->polygons_to_draw, 
                                       state->draw_count);

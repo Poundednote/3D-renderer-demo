@@ -2,6 +2,8 @@
 #include <emmintrin.h>
 #ifndef PHYSICS_MATH_H
 
+#define FLT_MAX 3.402823466e+38F
+
 struct V3 {
     float x, y, z;
 
