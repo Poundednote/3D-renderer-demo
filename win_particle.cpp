@@ -17,6 +17,8 @@ struct VideoOffscreenBuffer {
     int bytes_per_pixel;
 };
 
+
+
 static bool RUNNING = false;
 static VideoOffscreenBuffer vid_buf;
 
@@ -43,9 +45,44 @@ inline uint32_t safe_truncate_uint64(uint64_t value) {
     return result;
 }
 
+static void PlatformFreeFile(void *filebuffer) {
+    if (filebuffer) {
+        VirtualFree(filebuffer, 0, MEM_RELEASE);
+        filebuffer = 0;
+    }
+}
+
+static ReadFileResult PlatformReadFile(char *filepath) {
+    ReadFileResult result = {};
+    HANDLE fhandle = CreateFile(filepath, GENERIC_READ, FILE_SHARE_READ, 
+                                0, OPEN_EXISTING, 0, 0);
+    
+    LARGE_INTEGER filesize64;
+    if (!GetFileSizeEx(fhandle, &filesize64)) {
+        // 
+    }
+    DWORD filesize32 = safe_truncate_uint64(filesize64.QuadPart);
+    result.file = VirtualAlloc(0, filesize32, MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
+    if (!result.file) {
+        result.size = 0;
+    }
+
+    DWORD bytesread;
+    if (ReadFile(fhandle, result.file, filesize32, &bytesread, 0) && 
+            (filesize32 == bytesread)) {
+        result.size = filesize32;
+    }
+
+    else {
+        PlatformFreeFile(result.file); 
+        result.size = 0;
+    }
+    CloseHandle(fhandle);
+    return result;
+}
+
 static LRESULT CALLBACK win32_window_proc(HWND window, UINT message, 
                                  WPARAM w_param, LPARAM l_param) {
-
     LRESULT result = 0;
     switch (message) {
         case WM_CLOSE:

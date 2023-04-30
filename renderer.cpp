@@ -95,11 +95,8 @@ static void renderer_vertex4_to_v2screen(Vertex4 *in,
     }
 }
 
-static V3 renderer_world_vertex_to_view(V3 world_pos, GameCamera *camera, 
-                                  int buffer_width,
-                                  int buffer_height) {
-    V3 result;
-    result = v3_rotate_q4(world_pos-camera->pos, 
+static V3 renderer_world_vertex_to_view(V3 world_pos, GameCamera *camera) {
+    V3 result = v3_rotate_q4(world_pos-camera->pos, 
                           (rotation_q4(-camera->theta_x, v3(1,0,0))*
                           rotation_q4(-camera->theta_y, v3(0,1,0))));
 
@@ -163,21 +160,34 @@ static void renderer_world_vertices_to_screen_and_cull(V3 *in_vertices,
                                                        int out_vertices_count) {
 
 
+    for (int triangle = 0; triangle < tri_count; ++triangle) {
+        Triangle *current = &in_triangles[triangle];
+        float light_inten = v3_dot(v3_norm(v3(10, 10, -30)-(in_vertices[current->v1])), 
+                                   v3_norm(v3_cross(in_vertices[current->v2]-in_vertices[current->v1], 
+                                            in_vertices[current->v3]-in_vertices[current->v1])));
+        if (light_inten < 0) {
+            current->color = 0;
+            continue;
+        }
+
+        current->color = (((int)(0xFF/light_inten)) << 16) | 
+                        ((int)(0xFF/light_inten) << 8) |
+                        ((int)(0xFF/light_inten));
+    }
 
     for (int vertex = 0; vertex < v_count; ++vertex) {
-        in_vertices[vertex] = v3_rotate_q4(in_vertices[vertex]-camera->pos, 
-                (rotation_q4(-camera->theta_x, v3(1,0,0))*
-                 rotation_q4(-camera->theta_y, v3(0,1,0))));
+        in_vertices[vertex] = 
+            renderer_world_vertex_to_view(in_vertices[vertex], camera);
     }
 
 
     *tri_out_count = 0;
-    for (int triangle = 0; triangle < tri_count; triangle++) {
+    for (int triangle = 0; triangle < tri_count; ++triangle) {
         Triangle current = in_triangles[triangle];
 
         if (v3_dot(in_vertices[current.v1], 
-                    v3_cross(in_vertices[current.v2]-in_vertices[current.v1], 
-                        in_vertices[current.v3]-in_vertices[current.v1])) >= 0) {
+                v3_cross(in_vertices[current.v2]-in_vertices[current.v1], 
+                    in_vertices[current.v3]-in_vertices[current.v1])) >= 0) {
             continue;
         }
 
@@ -220,13 +230,13 @@ static inline bool renderer_v2screen_isinvalid(V3Screen screen,
     return false;
 }
 
-static void renderer_draw_background(OffscreenBuffer *buffer) {
+static void renderer_draw_background(OffscreenBuffer *buffer, uint32_t color) {
     uint8_t *row = (uint8_t *)buffer->memory;
     for (int y = 0;y < buffer->height; ++y) {
         uint32_t *pixel = (uint32_t *)row;
 
         for (int x =0;x < buffer->width; ++x) {
-            *pixel++ = 0xFF000000;
+            *pixel++ = color;
         }
 
         row += buffer->pitch;

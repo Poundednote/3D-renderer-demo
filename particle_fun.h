@@ -26,6 +26,11 @@
 #define WORLD_FORWARD (WORLD_DEPTH/2.0F)
 #define WORLD_BACK (-WORLD_DEPTH/2.0F)
 
+struct ReadFileResult {
+    uint32_t size;
+    void *file;
+};
+
 struct Particle {
     float mass;
     float radius; // used for collisons
@@ -132,5 +137,7 @@ struct GameState {
 #endif
 };
 
+static void PlatformFreeFile(char *filepath);
+static ReadFileResult PlatformReadFile(char *filepath);
 #define PHYSICS_H
 #endif // !PHYSICS_H
