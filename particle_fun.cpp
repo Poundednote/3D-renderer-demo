@@ -1,4 +1,5 @@
 #include <stdint.h>
+#include <stdio.h>
 #include <math.h>
 #include <emmintrin.h>
 
@@ -7,7 +8,7 @@
 #define PARTICLE_MASS 1
 #define COEFFICIENT_OF_DRAG 0.01f
 
-static V3 gravity; 
+static V3 gravity;
 
 static uint32_t parkmiller_rand(uint32_t *state) {
 	const uint32_t A = 48271;
@@ -177,17 +178,12 @@ void game_update_and_render(GameMemory *memory,
 
 
     GameState *state = (GameState *)memory->permanent_storage;
+    ReadFileResult sphere_mesh;
     if (!memory->is_initialised) {
         //set GRAVITY
         gravity.y = -9.81f; 
-        ReadFileResult sphere_mesh = PlatformReadFile("sphere.obj");
-        for (int i = 0; i > sphere_mesh.size; ++i) {
-            //find first character begging with v
-            if (((char *)sphere_mesh.file)[i]== 'v') {
-            }
-        }
 #if DEBUG_MODE
-        create_random_particles(state, 1000, 120093);
+        //create_random_particles(state, 1000, 120093);
         create_side_by_side_particles(state, 10, v3(10,0,0), v3(0,0,0));
         create_side_by_side_particles(state, 10, v3(0,0,10), v3(0,0,0));
 #endif
@@ -241,6 +237,32 @@ void game_update_and_render(GameMemory *memory,
     state->polygon_count = 0;
     state->draw_count = 0;
 
+    sphere_mesh = PlatformReadFile("sphere.obj");
+    {
+        int start_vertex_count = state->vertex_count;
+        int vertex_count = start_vertex_count;
+        for (uint32_t i = 0; i < sphere_mesh.size; ++i) {
+            //find first character begging with v
+            char *string = (char *)sphere_mesh.file;
+            if (string[i] == 'v') {
+                float x, y, z;
+                sscanf_s(string+(++i), " %f %f %f\n", &x, &y, &z); 
+                state->vertex_list[vertex_count++] = v3(x, y, -z);
+                ++state->vertex_count;
+            }
+
+            if (string[i] == 'f') {
+                Triangle polygon;
+                sscanf_s(string+(++i), "%d/%*d/%*d %d/%*d/%*d %d/%*d/%*d\n", &polygon.v3, &polygon.v2, &polygon.v1); 
+                polygon.v1 += start_vertex_count-1;
+                polygon.v2 += start_vertex_count-1;
+                polygon.v3 += start_vertex_count-1;
+                state->polygons[state->polygon_count++] = polygon; 
+            }
+        }
+    }
+
+
     renderer_draw_background(buffer, 0xFFFF00FF); 
 
     //clear z buffer every frame
@@ -253,7 +275,7 @@ void game_update_and_render(GameMemory *memory,
 
     float timestep = TIME_FOR_FRAME;
 
-    create_cube(state, v3(10,10,-30));
+    create_cube(state, v3(0,0,-30));
 
     {
         V3 move = {};

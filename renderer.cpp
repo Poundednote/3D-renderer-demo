@@ -162,7 +162,7 @@ static void renderer_world_vertices_to_screen_and_cull(V3 *in_vertices,
 
     for (int triangle = 0; triangle < tri_count; ++triangle) {
         Triangle *current = &in_triangles[triangle];
-        float light_inten = v3_dot(v3_norm(v3(10, 10, -30)-(in_vertices[current->v1])), 
+        float light_inten = v3_dot(v3_norm(v3(0, 0, -30)-(in_vertices[current->v1])), 
                                    v3_norm(v3_cross(in_vertices[current->v2]-in_vertices[current->v1], 
                                             in_vertices[current->v3]-in_vertices[current->v1])));
         if (light_inten < 0) {
@@ -374,7 +374,6 @@ static void renderer_draw_triangle_wireframe(OffscreenBuffer *buffer,
 static void renderer_v2screen4_draw_triangles_wireframe(OffscreenBuffer *buffer,
                                                       V3Screen4 *vertices,
                                                       Triangle *triangles,
-                                                      uint32_t color,
                                                       int count) {
 
     for (int i = 0; i < count; ++i) {
@@ -388,7 +387,7 @@ static void renderer_v2screen4_draw_triangles_wireframe(OffscreenBuffer *buffer,
         V3Screen vertex1 = {((int *)&vertices[index1].x)[offset1], ((int* )&vertices[index1].y)[offset1]};
         V3Screen vertex2 = {((int *)&vertices[index2].x)[offset2], ((int *)&vertices[index2].y)[offset2]};
         V3Screen vertex3 = {((int *)&vertices[index3].x)[offset3], ((int *)&vertices[index3].y)[offset3]};
-        renderer_draw_triangle_wireframe(buffer, vertex1, vertex2, vertex3, color);
+        renderer_draw_triangle_wireframe(buffer, vertex1, vertex2, vertex3, triangles->color);
         triangles++;
     }
 }
@@ -541,7 +540,7 @@ static void renderer_draw_triangles_filled(OffscreenBuffer *buffer,
 #if 0
 static void renderer_v2screen4_draw_triangles_filled(OffscreenBuffer *buffer,
                                                     V3Screen4 *vertices,
-                                                    Triangle *triangles,
+                  g                                  Triangle *triangles,
                                                     uint32_t *colors,
                                                     int colors_size,
                                                     int tricount) {
