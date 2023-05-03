@@ -98,20 +98,6 @@ struct GameMemory {
     void *transient_storage;
 };
 
-struct RendererState {
-    int vertex_count;
-    V3 vertex_list[65535*100];
-    
-    int screen_vertex_count;
-    V3Screen screen_vertices[65535*100];
-
-    int polygon_count;
-    Triangle polygons[65535*50];
-
-    int draw_count;
-    Triangle polygons_to_draw[65535*50];
-};
-
 struct GameState {
     float time;
 

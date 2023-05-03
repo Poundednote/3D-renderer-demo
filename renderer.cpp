@@ -147,61 +147,77 @@ static V3Screen renderer_world_vertex_to_screen(V3 world_pos,
     return result;
 }
 
-static void renderer_world_vertices_to_screen_and_cull(V3 *in_vertices, 
-                                                       int v_count, 
-                                                       Triangle *in_triangles,
-                                                       int tri_count,
-                                                       GameCamera *camera, 
-                                                       int buffer_width, 
-                                                       int buffer_height,
-                                                       Triangle *out_triangles,
-                                                       int *tri_out_count,
-                                                       V3Screen *out_vertices,
-                                                       int out_vertices_count) {
+static void renderer_transform_light_and_cull(RendererState *render_state,
+                                              GameCamera *camera, 
+                                              int buffer_width, 
+                                              int buffer_height) {
 
+    V3 light_source = v3(0, 10, -30);
+    for (int triangle = 0; triangle < render_state->polygon_count; ++triangle) {
+        Triangle *current = &render_state->polygons[triangle];
+        float light_inten = v3_dot(v3_norm(light_source-(render_state->vertex_list[current->v1])), 
+                render_state->vertexn_list[current->vn1]);
 
-    for (int triangle = 0; triangle < tri_count; ++triangle) {
-        Triangle *current = &in_triangles[triangle];
-        float light_inten = v3_dot(v3_norm(v3(0, 0, -30)-(in_vertices[current->v1])), 
-                                   v3_norm(v3_cross(in_vertices[current->v2]-in_vertices[current->v1], 
-                                            in_vertices[current->v3]-in_vertices[current->v1])));
         if (light_inten < 0) {
-            current->color = 0;
+            current->v1_color = 0;
             continue;
         }
 
-        current->color = (((int)(0xFF*light_inten)) << 16) | 
-                        ((int)(0xFF*light_inten) << 8) |
-                        ((int)(0xFF*light_inten));
-    }
+        current->v1_color = ((int)(0xFF*light_inten) << 16) | 
+                         ((int)(0xFF*light_inten) << 8) | 
+                         ((int)(0xFF*light_inten));
 
-    for (int vertex = 0; vertex < v_count; ++vertex) {
-        in_vertices[vertex] = 
-            renderer_world_vertex_to_view(in_vertices[vertex], camera);
-    }
+        light_inten = v3_dot(v3_norm(light_source-(render_state->vertex_list[current->v2])), 
+                render_state->vertexn_list[current->vn2]);
 
-
-    *tri_out_count = 0;
-    for (int triangle = 0; triangle < tri_count; ++triangle) {
-        Triangle current = in_triangles[triangle];
-
-        if (v3_dot(in_vertices[current.v1], 
-                v3_cross(in_vertices[current.v2]-in_vertices[current.v1], 
-                    in_vertices[current.v3]-in_vertices[current.v1])) >= 0) {
+        if (light_inten < 0) {
+            current->v2_color = 0;
             continue;
         }
 
-        out_triangles[(*tri_out_count)++] = current;
+        current->v2_color = ((int)(0xFF*light_inten) << 16) | 
+                         ((int)(0xFF*light_inten) << 8) | 
+                         ((int)(0xFF*light_inten));
+
+        light_inten = v3_dot(v3_norm(light_source-(render_state->vertex_list[current->v3])), 
+                render_state->vertexn_list[current->vn3]);
+
+        if (light_inten < 0) {
+            current->v3_color = 0;
+            continue;
+        }
+
+        current->v3_color = ((int)(0xFF*light_inten) << 16) | 
+                         ((int)(0xFF*light_inten) << 8) | 
+                         ((int)(0xFF*light_inten));
     }
+
+    for (int vertex = 0; vertex < render_state->vertex_count; ++vertex) {
+        render_state->vertex_list[vertex] = 
+            renderer_world_vertex_to_view(render_state->vertex_list[vertex], camera);
+    }
+
+    render_state->draw_count = 0;
+    for (int triangle = 0; triangle < render_state->polygon_count; ++triangle) {
+        Triangle current = render_state->polygons[triangle];
+        if (v3_dot(render_state->vertex_list[current.v1], 
+                v3_cross(render_state->vertex_list[current.v2]-render_state->vertex_list[current.v1], 
+                    render_state->vertex_list[current.v3]-render_state->vertex_list[current.v1])) >= 0) {
+            continue;
+        }
+
+        render_state->polygons_to_draw[render_state->draw_count++] = current;
+    }
+
 
     float aspect_ratio = ((float)buffer_width/(float)buffer_height);
-    for (int vertex = 0; vertex < v_count; ++vertex) {
-        V3 relative_pos = in_vertices[vertex];
+    for (int vertex = 0; vertex < render_state->vertex_count; ++vertex) {
+        V3 relative_pos = render_state->vertex_list[vertex];
 
         if (renderer_v3_should_clip(relative_pos, camera, aspect_ratio)) {
-            out_vertices[vertex].x = 0xFFFFFFFF;
-            out_vertices[vertex].y = 0xFFFFFFFF;
-            out_vertices[vertex].z = FLT_MAX;
+            render_state->screen_vertices[vertex].x = 0xFFFFFFFF;
+            render_state->screen_vertices[vertex].y = 0xFFFFFFFF;
+            render_state->screen_vertices[vertex].z = FLT_MAX;
             continue;
         }
         
@@ -213,9 +229,9 @@ static void renderer_world_vertices_to_screen_and_cull(V3 *in_vertices,
 
         int x = (int)(normal_x * (buffer_width/2.0f) + buffer_width/2.0f);
         int y = (int)(-normal_y * (buffer_height/2.0f) + buffer_height/2.0f);
-        out_vertices[vertex].x = x;
-        out_vertices[vertex].y = y;
-        out_vertices[vertex].z = relative_pos.z;
+        render_state->screen_vertices[vertex].x = x;
+        render_state->screen_vertices[vertex].y = y;
+        render_state->screen_vertices[vertex].z = relative_pos.z;
     }
 }
 
@@ -285,8 +301,8 @@ static void renderer_draw_line(OffscreenBuffer *buffer,
     float y_inc = (float)dy/(float)step;
 
     for (int draw = 0; draw < step; ++draw) {
-        int offset = (int)roundf(x)*buffer->bytes_per_pixel + 
-                     (int)roundf(y)*buffer->pitch;
+        int offset = (int)(x)*buffer->bytes_per_pixel + 
+                     (int)(y)*buffer->pitch;
 
             uint32_t *pixel = (uint32_t *)((uint8_t *)buffer->memory + offset);
             if ((pixel < endofbuffer) && (pixel >= buffer->memory)) {
@@ -302,7 +318,8 @@ static void renderer_draw_line_zcull(OffscreenBuffer *buffer,
                                      OffscreenBuffer *zbuffer,
                                      V3Screen start,
                                      V3Screen end,
-                                     uint32_t color) {
+                                     uint32_t start_color,
+                                     uint32_t end_color) {
             
 
     if (renderer_v2screen_isinvalid(start, buffer->width, buffer->height)) {
@@ -322,6 +339,7 @@ static void renderer_draw_line_zcull(OffscreenBuffer *buffer,
     int dx = end.x - start.x;
     int dy = end.y - start.y;
     float dz = end.z - start.z;
+    int dcolor = end_color - start_color;
     uint32_t *endofbuffer = (uint32_t *)((uint8_t *)buffer->memory + (buffer->width*buffer->height*buffer->bytes_per_pixel));
 
     // case where the gradient is below 1;
@@ -337,26 +355,29 @@ static void renderer_draw_line_zcull(OffscreenBuffer *buffer,
     float x = (float)start.x;
     float y = (float)start.y;
     float z = start.z;
+    float color = (float)start_color;
 
     float x_inc = (float)dx/(float)step;
     float y_inc = (float)dy/(float)step;
     float z_inc = (float)dz/(float)step;
+    float color_inc = (float)dcolor/(float)step;
 
     for (int draw = 0; draw < step; ++draw) {
-        int offset = (int)roundf(x)*buffer->bytes_per_pixel + 
-                     (int)roundf(y)*buffer->pitch;
+        int offset = (int)x*buffer->bytes_per_pixel + 
+                     (int)y*buffer->pitch;
 
         float *depth_value = (float *)((uint8_t *)zbuffer->memory + offset);
     
             if ((z < *depth_value)) {
                 uint32_t *pixel = (uint32_t *)((uint8_t *)buffer->memory + offset);
-                *pixel = color;
+                *pixel = (uint32_t)color;
                 *depth_value = z;
         }
 
         x += x_inc;
         y += y_inc;
         z += z_inc;
+        color += color_inc;
     }
 }
 
@@ -387,7 +408,7 @@ static void renderer_v2screen4_draw_triangles_wireframe(OffscreenBuffer *buffer,
         V3Screen vertex1 = {((int *)&vertices[index1].x)[offset1], ((int* )&vertices[index1].y)[offset1]};
         V3Screen vertex2 = {((int *)&vertices[index2].x)[offset2], ((int *)&vertices[index2].y)[offset2]};
         V3Screen vertex3 = {((int *)&vertices[index3].x)[offset3], ((int *)&vertices[index3].y)[offset3]};
-        renderer_draw_triangle_wireframe(buffer, vertex1, vertex2, vertex3, triangles->color);
+        renderer_draw_triangle_wireframe(buffer, vertex1, vertex2, vertex3, triangles->v1_color);
         triangles++;
     }
 }
@@ -397,20 +418,25 @@ static void renderer_draw_flat_top_triangle(OffscreenBuffer *buffer,
                                             V3Screen v1,
                                             V3Screen v2,
                                             V3Screen v3,
-                                            uint32_t color) {
+                                            uint32_t v1_color,
+                                            uint32_t v2_color,
+                                            uint32_t v3_color) {
         
-    float x_inc_left = (float)(v1.x-v2.x)/(float)(v1.y-v2.y);
-    float x_inc_right = (float)(v1.x-v3.x)/(float)(v1.y-v3.y);
+    float steps = (float)(v1.y - v3.y);
+    float x_inc_left = (float)(v1.x-v2.x)/steps;
+    float x_inc_right = (float)(v1.x-v3.x)/steps;
+    float color_left_inc = (float)(v1_color-v2_color)/steps;
+    float color_righ_inc = (float)(v1_color-v3_color)/steps;
 
     float x_left = (float)v2.x;
     float x_right = (float)v3.x;
     float z_left = v2.z;
     float z_right = v3.z;
+    float color_left = (float)v2_color;
+    float color_right = (float)v3_color;
     
     float dzl = v1.z - v2.z;
     float dzr = v1.z - v3.z;
-
-    int steps = v2.y - v1.y;
 
     for (int y = v2.y; y <= v1.y; ++y) {
         V3Screen left;
@@ -423,12 +449,14 @@ static void renderer_draw_flat_top_triangle(OffscreenBuffer *buffer,
         right.y = y;
         right.z = z_right;
 
-        renderer_draw_line_zcull(buffer, zbuffer, left, right, color);
+        renderer_draw_line_zcull(buffer, zbuffer, left, right, (uint32_t)color_left, (uint32_t)color_right);
 
         x_left += x_inc_left;
         x_right += x_inc_right;
         z_left += dzl / (float)steps;
         z_right += dzr / (float)steps;
+        color_left += color_left_inc;
+        color_right += color_left_inc;
 
     }
 }
@@ -438,20 +466,26 @@ static void renderer_draw_flat_bottom_triangle(OffscreenBuffer *buffer,
                                                V3Screen v1,
                                                V3Screen v2,
                                                V3Screen v3,
-                                               uint32_t color) {
+                                               uint32_t v1_color,
+                                               uint32_t v2_color,
+                                               uint32_t v3_color) {
 
-    float x_inc_left = (float)(v3.x-v2.x)/(float)(v3.y-v2.y);
-    float x_inc_right = (float)(v3.x-v1.x)/(float)(v3.y-v1.y);
+    float steps = (float)(v3.y - v2.y);
+    float x_inc_left = (float)(v3.x-v2.x)/(steps);
+    float x_inc_right = (float)(v3.x-v1.x)/(steps);
+    float color_inc_left = (float)(v3_color-v2_color)/steps;
+    float color_inc_right = (float)(v3_color-v1_color)/steps;
 
     float x_left = (float)v2.x;
     float x_right = (float)v1.x;
     float z_left = v2.z;
     float z_right = v1.z;
+    float color_left = (float)v2_color;
+    float color_right = (float)v1_color;
 
     float dzl = v3.z - v2.z;
     float dzr = v3.z - v1.z;
 
-    int steps = v3.y - v2.y;
     
     for (int y = v2.y; y >= v3.y; --y) {
         V3Screen left;
@@ -464,12 +498,14 @@ static void renderer_draw_flat_bottom_triangle(OffscreenBuffer *buffer,
         right.y = y;
         right.z = z_right;
 
-        renderer_draw_line_zcull(buffer, zbuffer, left, right, color);
+        renderer_draw_line_zcull(buffer, zbuffer, left, right, (uint32_t)color_left, (uint32_t)color_right);
 
         x_left -= x_inc_left;
         x_right -= x_inc_right;
-        z_left += dzl / (float)steps;
-        z_right += dzr / (float)steps;
+        z_left += dzl /steps;
+        z_right += dzr / steps;
+        color_left += color_inc_left;
+        color_right += color_inc_right;
     }
 }
 
@@ -484,7 +520,9 @@ static void renderer_draw_triangles_filled(OffscreenBuffer *buffer,
         V3Screen v1 = vertices[triangles[i].v1];
         V3Screen v2 = vertices[triangles[i].v2];
         V3Screen v3 = vertices[triangles[i].v3];
-        uint32_t color = triangles[i].color;
+        uint32_t v1_color = triangles[i].v1_color;
+        uint32_t v2_color = triangles[i].v2_color;
+        uint32_t v3_color = triangles[i].v3_color;
 
         if (renderer_v2screen_isinvalid(v1, buffer->width, buffer->height)) {
             continue;
@@ -518,12 +556,12 @@ static void renderer_draw_triangles_filled(OffscreenBuffer *buffer,
         }
 
         if (v3.y == v2.y) {
-            renderer_draw_flat_top_triangle(buffer, zbuffer, v1, v2, v3, color);
+            renderer_draw_flat_top_triangle(buffer, zbuffer, v1, v2, v3, v1_color, v2_color, v3_color);
             continue;
         }
 
         if (v1.y == v2.y) {
-            renderer_draw_flat_bottom_triangle(buffer, zbuffer, v1, v2, v3, color);
+            renderer_draw_flat_bottom_triangle(buffer, zbuffer, v1, v2, v3, v1_color, v2_color, v3_color);
             continue;
         }
 
@@ -531,8 +569,9 @@ static void renderer_draw_triangles_filled(OffscreenBuffer *buffer,
         v4.x = (int)(v3.x - (((float)(v3.y-v2.y)/(float)(v3.y-v1.y))*(float)(v3.x-v1.x)));
         v4.y = v2.y;
         v4.z = ((v1.z - v2.z)/2) + v2.z; 
-        renderer_draw_flat_top_triangle(buffer, zbuffer, v1, v2, v4, color);
-        renderer_draw_flat_bottom_triangle(buffer, zbuffer, v2, v4, v3, color);
+        uint32_t v4_color = (v3_color + (((v1_color-v3_color)/(v1.y-v3.y))*(v2.y-v3.y)));
+        renderer_draw_flat_top_triangle(buffer, zbuffer, v1, v2, v4, v1_color, v2_color, v4_color);
+        renderer_draw_flat_bottom_triangle(buffer, zbuffer, v2, v4, v3, v2_color, v4_color, v3_color);
     }
 
 }
@@ -540,7 +579,7 @@ static void renderer_draw_triangles_filled(OffscreenBuffer *buffer,
 #if 0
 static void renderer_v2screen4_draw_triangles_filled(OffscreenBuffer *buffer,
                                                     V3Screen4 *vertices,
-                  g                                  Triangle *triangles,
+                                                    Triangle *triangles,
                                                     uint32_t *colors,
                                                     int colors_size,
                                                     int tricount) {

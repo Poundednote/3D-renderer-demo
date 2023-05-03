@@ -57,15 +57,41 @@ struct Triangle {
     int v1;
     int v2;
     int v3;
-    uint32_t color;
+
+    int vn1;
+    int vn2;
+    int vn3;
+    uint32_t v1_color;
+    uint32_t v2_color;
+    uint32_t v3_color;
 };
 
 struct Mesh {
     V3 vertices[65535];
     int vert_count;
+    
+    V3 vertexn[65535];
+    int vertexn_count;
 
     Triangle polygons[65535];
     int poly_count;
+};
+
+struct RendererState {
+    int vertex_count;
+    V3 vertex_list[65536*100];
+
+    int vertexn_count;
+    V3 vertexn_list[65536*100];
+    
+    int screen_vertex_count;
+    V3Screen screen_vertices[65536*100];
+
+    int polygon_count;
+    Triangle polygons[65536*50];
+
+    int draw_count;
+    Triangle polygons_to_draw[65536*30];
 };
 
 static void renderer_vertex4_to_v2screen(Vertex4 *in,
