@@ -26,7 +26,9 @@ static uint32_t parkmiller_rand(uint32_t *state) {
 #if DEBUG_MODE
 
 static void create_random_particles(GameState *state, 
+                                    RendererState *render_state,
                                     int number_of_particles, 
+                                    Mesh *mesh,
                                     uint32_t seed) {
 
     for (int i = 0; i < number_of_particles; i++) { 
@@ -45,14 +47,34 @@ static void create_random_particles(GameState *state,
 
         state->particle_count++;
     }
+
+    for (int i = 0; i < number_of_particles; ++i) {
+        int vertex_start = render_state->vertex_count;
+        for (int vert = 0; vert < mesh->vert_count; ++vert) {
+            render_state->vertex_list[render_state->vertex_count++] = 
+                mesh->vertices[vert]+state->particles.pos[i];
+        }
+
+        for (int polygon = 0; polygon < mesh->poly_count; ++polygon) {
+            render_state->polygons[render_state->polygon_count] = mesh->polygons[polygon];
+            render_state->polygons[render_state->polygon_count].v1 += vertex_start;
+            render_state->polygons[render_state->polygon_count].v2 += vertex_start;
+            render_state->polygons[render_state->polygon_count].v3 += vertex_start;
+            render_state->polygon_count++;
+        }
+
+    }
+
 }
 
 static void create_side_by_side_particles(GameState *state, 
-                                    int number_of_particles, 
-                                    V3 pad,
-                                    V3 start) {
+                                          RendererState *render_state,
+                                          int number_of_particles, 
+                                          V3 pad,
+                                          V3 start,
+                                          Mesh *mesh) {
 
-    for (int i = 0; i < number_of_particles; i++) { 
+    for (int i = 0; i < number_of_particles; ++i) { 
         //assert(state->particle_count < arraysize(state->particles));
         state->particles.mass[state->particle_count] = 1;
         state->particles.radius[state->particle_count] = state->particles.mass[state->particle_count];
@@ -61,40 +83,56 @@ static void create_side_by_side_particles(GameState *state,
 
         state->particle_count++;
     }
+
+    for (int i = 0; i < number_of_particles; ++i) {
+        int vertex_start = render_state->vertex_count;
+        for (int vert = 0; vert < mesh->vert_count; ++vert) {
+            render_state->vertex_list[render_state->vertex_count++] = mesh->vertices[vert]+state->particles.pos[i];
+        }
+
+        for (int polygon = 0; polygon < mesh->poly_count; ++polygon) {
+            render_state->polygons[render_state->polygon_count] = mesh->polygons[polygon];
+            render_state->polygons[render_state->polygon_count].v1 += vertex_start;
+            render_state->polygons[render_state->polygon_count].v2 += vertex_start;
+            render_state->polygons[render_state->polygon_count].v3 += vertex_start;
+            render_state->polygon_count++;
+        }
+
+    }
 }
 
-static void create_cube(GameState *state, V3 pos) {
+static void create_cube_mesh(RendererState *render_state, V3 pos) {
 
-    int vertex0 = state->vertex_count++;
-    int vertex1 = state->vertex_count++; 
-    int vertex2 = state->vertex_count++;
-    int vertex3 = state->vertex_count++;
-    int vertex4 = state->vertex_count++;
-    int vertex5 = state->vertex_count++; 
-    int vertex6 = state->vertex_count++;
-    int vertex7 = state->vertex_count++;
+    int vertex0 = render_state->vertex_count++;
+    int vertex1 = render_state->vertex_count++; 
+    int vertex2 = render_state->vertex_count++;
+    int vertex3 = render_state->vertex_count++;
+    int vertex4 = render_state->vertex_count++;
+    int vertex5 = render_state->vertex_count++; 
+    int vertex6 = render_state->vertex_count++;
+    int vertex7 = render_state->vertex_count++;
 
-    state->vertex_list[vertex0] = v3(pos.x, pos.y, pos.z);
-    state->vertex_list[vertex1] = v3(pos.x, pos.y, pos.z+1);
-    state->vertex_list[vertex2] = v3(pos.x, pos.y+1, pos.z);
-    state->vertex_list[vertex3] = v3(pos.x, pos.y+1, pos.z+1);
-    state->vertex_list[vertex4] = v3(pos.x+1, pos.y, pos.z);
-    state->vertex_list[vertex5] = v3(pos.x+1, pos.y, pos.z+1);
-    state->vertex_list[vertex6] = v3(pos.x+1, pos.y+1, pos.z);
-    state->vertex_list[vertex7] = v3(pos.x+1, pos.y+1, pos.z+1);
+    render_state->vertex_list[vertex0] = v3(pos.x, pos.y, pos.z);
+    render_state->vertex_list[vertex1] = v3(pos.x, pos.y, pos.z+1);
+    render_state->vertex_list[vertex2] = v3(pos.x, pos.y+1, pos.z);
+    render_state->vertex_list[vertex3] = v3(pos.x, pos.y+1, pos.z+1);
+    render_state->vertex_list[vertex4] = v3(pos.x+1, pos.y, pos.z);
+    render_state->vertex_list[vertex5] = v3(pos.x+1, pos.y, pos.z+1);
+    render_state->vertex_list[vertex6] = v3(pos.x+1, pos.y+1, pos.z);
+    render_state->vertex_list[vertex7] = v3(pos.x+1, pos.y+1, pos.z+1);
 
-    Triangle *triangle0 = &state->polygons[state->polygon_count++];
-    Triangle *triangle1 = &state->polygons[state->polygon_count++];
-    Triangle *triangle2 = &state->polygons[state->polygon_count++];
-    Triangle *triangle3 = &state->polygons[state->polygon_count++];
-    Triangle *triangle4 = &state->polygons[state->polygon_count++];
-    Triangle *triangle5 = &state->polygons[state->polygon_count++];
-    Triangle *triangle6 = &state->polygons[state->polygon_count++];
-    Triangle *triangle7 = &state->polygons[state->polygon_count++];
-    Triangle *triangle8 = &state->polygons[state->polygon_count++];
-    Triangle *triangle9 = &state->polygons[state->polygon_count++];
-    Triangle *triangle10 = &state->polygons[state->polygon_count++];
-    Triangle *triangle11 = &state->polygons[state->polygon_count++];
+    Triangle *triangle0 = &render_state->polygons[render_state->polygon_count++];
+    Triangle *triangle1 = &render_state->polygons[render_state->polygon_count++];
+    Triangle *triangle2 = &render_state->polygons[render_state->polygon_count++];
+    Triangle *triangle3 = &render_state->polygons[render_state->polygon_count++];
+    Triangle *triangle4 = &render_state->polygons[render_state->polygon_count++];
+    Triangle *triangle5 = &render_state->polygons[render_state->polygon_count++];
+    Triangle *triangle6 = &render_state->polygons[render_state->polygon_count++];
+    Triangle *triangle7 = &render_state->polygons[render_state->polygon_count++];
+    Triangle *triangle8 = &render_state->polygons[render_state->polygon_count++];
+    Triangle *triangle9 = &render_state->polygons[render_state->polygon_count++];
+    Triangle *triangle10 = &render_state->polygons[render_state->polygon_count++];
+    Triangle *triangle11 = &render_state->polygons[render_state->polygon_count++];
 
     triangle0->v1  = vertex0;
     triangle0->v2  = vertex2;
@@ -156,6 +194,18 @@ static void create_cube(GameState *state, V3 pos) {
     triangle11->v3  = vertex5;
     triangle11->color = CYAN;
 }
+
+static void draw_cube(RendererState *render_state, V3 pos) {
+    render_state->vertex_list[render_state->vertex_count++] = v3(pos.x, pos.y, pos.z);
+    render_state->vertex_list[render_state->vertex_count++] = v3(pos.x, pos.y, pos.z+1);
+    render_state->vertex_list[render_state->vertex_count++] = v3(pos.x, pos.y+1, pos.z);
+    render_state->vertex_list[render_state->vertex_count++] = v3(pos.x, pos.y+1, pos.z+1);
+    render_state->vertex_list[render_state->vertex_count++] = v3(pos.x+1, pos.y, pos.z);
+    render_state->vertex_list[render_state->vertex_count++] = v3(pos.x+1, pos.y, pos.z+1);
+    render_state->vertex_list[render_state->vertex_count++] = v3(pos.x+1, pos.y+1, pos.z);
+    render_state->vertex_list[render_state->vertex_count++] = v3(pos.x+1, pos.y+1, pos.z+1);
+    
+}
 #endif
 
 inline static void spring_apply_force(Spring *spring) {
@@ -178,22 +228,46 @@ void game_update_and_render(GameMemory *memory,
 
 
     GameState *state = (GameState *)memory->permanent_storage;
-    ReadFileResult sphere_mesh;
+    RendererState *render_state = (RendererState *)memory->transient_storage;
+    Mesh *sphere_mesh = (Mesh *)((char *)memory->transient_storage+sizeof(RendererState));
     if (!memory->is_initialised) {
+        ReadFileResult sphere_obj = PlatformReadFile("sphere.obj");
+        render_state->polygon_count = 0;
+        for (uint32_t i = 0; i < sphere_obj.size; ++i) {
+            //find first character begging with v
+            char *string = (char *)sphere_obj.file;
+            if (string[i] == 'v') {
+                float x, y, z;
+                sscanf_s(string+(++i), " %f %f %f\n", &x, &y, &z); 
+                sphere_mesh->vertices[sphere_mesh->vert_count++] = v3(x, y, -z);
+            }
+            if (string[i] == 'f') {
+                Triangle polygon;
+                sscanf_s(string+(++i), "%d/%*d/%*d %d/%*d/%*d %d/%*d/%*d\n", &polygon.v3, &polygon.v2, &polygon.v1); 
+                polygon.v1 -= 1;
+                polygon.v2 -= 1;
+                polygon.v3 -= 1;
+                sphere_mesh->polygons[sphere_mesh->poly_count++] = polygon; 
+            }
+        }
+        PlatformFreeFile(sphere_obj.file);
+        
         //set GRAVITY
         gravity.y = -9.81f; 
 #if DEBUG_MODE
-        //create_random_particles(state, 1000, 120093);
-        create_side_by_side_particles(state, 10, v3(10,0,0), v3(0,0,0));
-        create_side_by_side_particles(state, 10, v3(0,0,10), v3(0,0,0));
+        create_random_particles(state, render_state, 100, sphere_mesh, 120093);
+        create_side_by_side_particles(state, render_state, 10, v3(10,0,0), v3(0,0,0), sphere_mesh);
+        create_side_by_side_particles(state, render_state, 10, v3(0,0,10), v3(0,0,0), sphere_mesh);
+        create_cube_mesh(render_state, v3(0, 0, -30));
+        draw_cube(render_state, v3(0, 0, -30));
 #endif
-        
+
 #if 0
         Spring *spring = &state->springs[state->spring_count++];
         spring->p1 = &state->particles[state->particle_count++];
         spring->p2 = &state->particles[state->particle_count++];
         spring->spring_const = 3.0f;
-            spring->damping_const = 0.2f;
+        spring->damping_const = 0.2f;
         spring->rest_length = 3;
 
         spring->p1->mass = 1;
@@ -232,37 +306,9 @@ void game_update_and_render(GameMemory *memory,
     }
 #endif
 
-    state->vertex_count = 0;
-    state->screen_vertex_count = 0;
-    state->polygon_count = 0;
-    state->draw_count = 0;
 
-    sphere_mesh = PlatformReadFile("sphere.obj");
-    {
-        int start_vertex_count = state->vertex_count;
-        int vertex_count = start_vertex_count;
-        for (uint32_t i = 0; i < sphere_mesh.size; ++i) {
-            //find first character begging with v
-            char *string = (char *)sphere_mesh.file;
-            if (string[i] == 'v') {
-                float x, y, z;
-                sscanf_s(string+(++i), " %f %f %f\n", &x, &y, &z); 
-                state->vertex_list[vertex_count++] = v3(x, y, -z);
-                ++state->vertex_count;
-            }
-
-            if (string[i] == 'f') {
-                Triangle polygon;
-                sscanf_s(string+(++i), "%d/%*d/%*d %d/%*d/%*d %d/%*d/%*d\n", &polygon.v3, &polygon.v2, &polygon.v1); 
-                polygon.v1 += start_vertex_count-1;
-                polygon.v2 += start_vertex_count-1;
-                polygon.v3 += start_vertex_count-1;
-                state->polygons[state->polygon_count++] = polygon; 
-            }
-        }
-    }
-
-
+    render_state->vertex_count = 0;
+    render_state->screen_vertex_count = 0;
     renderer_draw_background(buffer, 0xFFFF00FF); 
 
     //clear z buffer every frame
@@ -275,7 +321,6 @@ void game_update_and_render(GameMemory *memory,
 
     float timestep = TIME_FOR_FRAME;
 
-    create_cube(state, v3(0,0,-30));
 
     {
         V3 move = {};
@@ -366,8 +411,6 @@ void game_update_and_render(GameMemory *memory,
         }
     }
 
-    // transform particles
-
     int cube_count = 0;
     int screen_count = 0;
     for (int i = 0;i < state->particle_count; i++) {
@@ -376,166 +419,13 @@ void game_update_and_render(GameMemory *memory,
         V2Screen4 screen[2];
         Vertex4Cube *cube = &state->particle_vert[cube_count++];
 #else
-        int vertex0 = state->vertex_count++;
-        int vertex1 = state->vertex_count++; 
-        int vertex2 = state->vertex_count++;
-        int vertex3 = state->vertex_count++;
-        int vertex4 = state->vertex_count++;
-        int vertex5 = state->vertex_count++; 
-        int vertex6 = state->vertex_count++;
-        int vertex7 = state->vertex_count++;
-
-        state->vertex_list[vertex0] = v3(state->particles.pos[i].x, state->particles.pos[i].y, state->particles.pos[i].z);
-        state->vertex_list[vertex1] = v3(state->particles.pos[i].x, state->particles.pos[i].y, state->particles.pos[i].z+1);
-        state->vertex_list[vertex2] = v3(state->particles.pos[i].x, state->particles.pos[i].y+1, state->particles.pos[i].z);
-        state->vertex_list[vertex3] = v3(state->particles.pos[i].x, state->particles.pos[i].y+1, state->particles.pos[i].z+1);
-        state->vertex_list[vertex4] = v3(state->particles.pos[i].x+1, state->particles.pos[i].y, state->particles.pos[i].z);
-        state->vertex_list[vertex5] = v3(state->particles.pos[i].x+1, state->particles.pos[i].y, state->particles.pos[i].z+1);
-        state->vertex_list[vertex6] = v3(state->particles.pos[i].x+1, state->particles.pos[i].y+1, state->particles.pos[i].z);
-        state->vertex_list[vertex7] = v3(state->particles.pos[i].x+1, state->particles.pos[i].y+1, state->particles.pos[i].z+1);
-
+        for (int vert = 0; vert < sphere_mesh->vert_count; ++vert) {
+            render_state->vertex_list[render_state->vertex_count++] = sphere_mesh->vertices[vert] + state->particles.pos[i];
+        }
 #endif
-
-        Triangle *triangle0 = &state->polygons[state->polygon_count++];
-        Triangle *triangle1 = &state->polygons[state->polygon_count++];
-        Triangle *triangle2 = &state->polygons[state->polygon_count++];
-        Triangle *triangle3 = &state->polygons[state->polygon_count++];
-        Triangle *triangle4 = &state->polygons[state->polygon_count++];
-        Triangle *triangle5 = &state->polygons[state->polygon_count++];
-        Triangle *triangle6 = &state->polygons[state->polygon_count++];
-        Triangle *triangle7 = &state->polygons[state->polygon_count++];
-        Triangle *triangle8 = &state->polygons[state->polygon_count++];
-        Triangle *triangle9 = &state->polygons[state->polygon_count++];
-        Triangle *triangle10 = &state->polygons[state->polygon_count++];
-        Triangle *triangle11 = &state->polygons[state->polygon_count++];
-
-        triangle0->v1  = vertex0;
-        triangle0->v2  = vertex2;
-        triangle0->v3  = vertex4;
-        triangle0->color = WHITE;
-
-        triangle1->v1  = vertex2;
-        triangle1->v2  = vertex6;
-        triangle1->v3  = vertex4;
-        triangle1->color = WHITE;
-
-        triangle2->v1  = vertex4;
-        triangle2->v2  = vertex6;
-        triangle2->v3  = vertex5;
-        triangle2->color = RED;
-
-        triangle3->v1  = vertex6;
-        triangle3->v2  = vertex7;
-        triangle3->v3  = vertex5;
-        triangle3->color = RED;
-
-        triangle4->v1  = vertex5;
-        triangle4->v2  = vertex7;
-        triangle4->v3  = vertex1;
-        triangle4->color = GREEN;
-
-        triangle5->v1  = vertex7;
-        triangle5->v2  = vertex3;
-        triangle5->v3  = vertex1;
-        triangle5->color = GREEN;
-
-        triangle6->v1  = vertex1;
-        triangle6->v2  = vertex3;
-        triangle6->v3  = vertex0;
-        triangle6->color = BLUE;
-
-        triangle7->v1  = vertex3;
-        triangle7->v2  = vertex2;
-        triangle7->v3  = vertex0;
-        triangle7->color = BLUE;
-
-        triangle8->v1  = vertex2;
-        triangle8->v2  = vertex3;
-        triangle8->v3  = vertex6;
-        triangle8->color = PINK;
-
-        triangle9->v1  = vertex3;
-        triangle9->v2  = vertex7;
-        triangle9->v3  = vertex6;
-        triangle9->color = PINK;
-
-        triangle10->v1  = vertex1;
-        triangle10->v2  = vertex0;
-        triangle10->v3  = vertex5;
-        triangle10->color = CYAN;
-
-        triangle11->v1  = vertex0;
-        triangle11->v2  = vertex4;
-        triangle11->v3  = vertex5;
-        triangle11->color = CYAN;
-
-#if SSE
-        cube->vertices[0].x = _mm_set1_ps(state->particles.pos[i].x);
-        cube->vertices[1].x = _mm_set1_ps(state->particles.pos[i].x+1);
-
-        cube->vertices[0].y = _mm_set_ps(state->particles.pos[i].y, 
-                                          state->particles.pos[i].y,
-                                          state->particles.pos[i].y+1,
-                                          state->particles.pos[i].y+1);
-
-        cube->vertices[1].y = _mm_set_ps(state->particles.pos[i].y, 
-                                          state->particles.pos[i].y,
-                                          state->particles.pos[i].y+1,
-                                          state->particles.pos[i].y+1);
-
-        cube->vertices[0].z = _mm_set_ps(state->particles.pos[i].z,
-                                         state->particles.pos[i].z+1,
-                                         state->particles.pos[i].z,
-                                         state->particles.pos[i].z+1);
-
-        cube->vertices[1].z = _mm_set_ps(state->particles.pos[i].z,
-                                         state->particles.pos[i].z+1,
-                                         state->particles.pos[i].z,
-                                         state->particles.pos[i].z+1);
-
-        renderer_vertex4_to_v2screen(cube->vertices, 
-                            &state->camera, 
-                            buffer->width, 
-                            buffer->height, 
-                            2, 
-                            screen);
-
-        // unpack
-        V2Screen unpacked_screen[arraysize(screen)*4];
-
-        unpacked_screen[0].x = ((int *)&screen[0].x)[3];
-        unpacked_screen[0].y = ((int *)&screen[0].y)[3];
-
-        unpacked_screen[1].x = ((int *)&screen[0].x)[2];
-        unpacked_screen[1].y = ((int *)&screen[0].y)[2];
-
-        unpacked_screen[2].x = ((int *)&screen[0].x)[1];
-        unpacked_screen[2].y = ((int *)&screen[0].y)[1];
-
-        unpacked_screen[3].x = ((int *)&screen[0].x)[0];
-        unpacked_screen[3].y = ((int *)&screen[0].y)[0];
-
-        unpacked_screen[4].x = ((int *)&screen[1].x)[3];
-        unpacked_screen[4].y = ((int *)&screen[1].y)[3];
-
-        unpacked_screen[5].x = ((int *)&screen[1].x)[2];
-        unpacked_screen[5].y = ((int *)&screen[1].y)[2];
-
-        unpacked_screen[6].x = ((int *)&screen[1].x)[1];
-        unpacked_screen[6].y = ((int *)&screen[1].y)[1];
-
-        unpacked_screen[7].x = ((int *)&screen[1].x)[0];
-        unpacked_screen[7].y = ((int *)&screen[1].y)[0];
-
-        renderer_draw_triangles_filled(buffer, 
-                                       unpacked_screen, 
-                                       triangles, 
-                                       colors, 
-                                       arraysize(triangles));
-#endif
-
-       // V2Screen4_draw_triangles(buffer, screen, triangles, 0xFFFF00FF, 12);
     }
+
+    draw_cube(render_state, v3(0, 0, -30));
 
     //draw every spring
     for (int i = 0;i < state->spring_count; ++i) {
@@ -554,31 +444,37 @@ void game_update_and_render(GameMemory *memory,
 
         for (int i = 0; i < state->particle_count; ++i) {
 
-            float particle_left = state->particles.pos[i].x - (state->particles.radius[i]/2.0f);
-            float particle_right = state->particles.pos[i].x + (state->particles.radius[i]/2.0f);
-            float particle_top = state->particles.pos[i].y + (state->particles.radius[i]/2.0f);
-            float particle_bottom = state->particles.pos[i].y - (state->particles.radius[i]/2.0f);
 
             float particle_x = state->particles.pos[i].x;
             float particle_y = state->particles.pos[i].y;
+            float particle_z = state->particles.pos[i].z;
 
-            float particle_dx = state->particles.pos[i].x;
+            float particle_dx = state->particles.vel[i].x;
             float particle_dy = state->particles.vel[i].y;
+            float particle_dz = state->particles.vel[i].z;
 
-            if (particle_right > WORLD_RIGHT) {
+            if (particle_x > WORLD_RIGHT) {
                 particle_dx = -particle_dx;
             }
 
-            if (particle_left < WORLD_LEFT) {
+            if (particle_x < WORLD_LEFT) {
                 particle_dx = -particle_dx;
             }
 
 
-            if (particle_top > WORLD_TOP) {
+            if (particle_y > WORLD_TOP) {
                 particle_dy = -particle_dy;
             }
 
-            if (particle_bottom < WORLD_BOTTOM) {
+            if (particle_y < WORLD_BOTTOM) {
+                particle_dy = -particle_dy;
+            }
+
+            if (particle_z > WORLD_FORWARD) {
+                particle_dy = -particle_dy;
+            }
+
+            if (particle_z < WORLD_BACK) {
                 particle_dy = -particle_dy;
             }
 
@@ -694,6 +590,7 @@ void game_update_and_render(GameMemory *memory,
             //zero forces
             state->particles.f_accumulator[i] = {}; 
             state->particles.f_accumulator[i] += -(COEFFICIENT_OF_DRAG*state->particles.vel[i]); 
+            state->particles.f_accumulator[i] += gravity;
         }
 
         // apply springs forces
@@ -720,25 +617,26 @@ void game_update_and_render(GameMemory *memory,
 
 #endif
 
-       renderer_world_vertices_to_screen_and_cull(state->vertex_list, 
-                                                  state->vertex_count, 
-                                                  state->polygons,
-                                                  state->polygon_count,
+       renderer_world_vertices_to_screen_and_cull(render_state->vertex_list, 
+                                                  render_state->vertex_count, 
+                                                  render_state->polygons,
+                                                  render_state->polygon_count,
                                                   &state->camera, 
                                                   buffer->width, 
                                                   buffer->height, 
-                                                  state->polygons_to_draw,
-                                                  &state->draw_count,
-                                                  state->screen_vertices,
-                                                  state->screen_vertex_count);
+                                                  render_state->polygons_to_draw,
+                                                  &render_state->draw_count,
+                                                  render_state->screen_vertices,
+                                                  render_state->screen_vertex_count);
 
 
        renderer_draw_triangles_filled(buffer,
                                       zbuffer,
-                                      state->screen_vertices,
-                                      state->polygons_to_draw, 
-                                      state->draw_count);
+                                      render_state->screen_vertices,
+                                      render_state->polygons_to_draw, 
+                                      render_state->draw_count);
 
-        state->time += timestep;
+       state->time += timestep;
     }
+
 } 

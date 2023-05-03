@@ -170,9 +170,9 @@ static void renderer_world_vertices_to_screen_and_cull(V3 *in_vertices,
             continue;
         }
 
-        current->color = (((int)(0xFF/light_inten)) << 16) | 
-                        ((int)(0xFF/light_inten) << 8) |
-                        ((int)(0xFF/light_inten));
+        current->color = (((int)(0xFF*light_inten)) << 16) | 
+                        ((int)(0xFF*light_inten) << 8) |
+                        ((int)(0xFF*light_inten));
     }
 
     for (int vertex = 0; vertex < v_count; ++vertex) {

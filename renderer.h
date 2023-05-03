@@ -60,8 +60,12 @@ struct Triangle {
     uint32_t color;
 };
 
-struct CubeMesh {
-    Triangle triangles[12];
+struct Mesh {
+    V3 vertices[65535];
+    int vert_count;
+
+    Triangle polygons[65535];
+    int poly_count;
 };
 
 static void renderer_vertex4_to_v2screen(Vertex4 *in,

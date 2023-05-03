@@ -163,6 +163,11 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE prev_instance,
                 0, game_memory.permanent_stoarage_size, 
                 MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
 
+    game_memory.transient_storage_size = gigabytes(1);
+    game_memory.transient_storage = VirtualAlloc(
+            0, game_memory.transient_storage_size, 
+            MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
+
     OffscreenBuffer game_buffer = {};
     game_buffer.memory = vid_buf.bitmap_memory;
     game_buffer.width = vid_buf.width;

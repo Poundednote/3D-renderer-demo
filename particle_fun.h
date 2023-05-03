@@ -92,8 +92,24 @@ struct GameInput {
 struct GameMemory {
     bool is_initialised;
     uint32_t permanent_stoarage_size;
-
     void *permanent_storage;
+
+    uint32_t transient_storage_size;
+    void *transient_storage;
+};
+
+struct RendererState {
+    int vertex_count;
+    V3 vertex_list[65535*100];
+    
+    int screen_vertex_count;
+    V3Screen screen_vertices[65535*100];
+
+    int polygon_count;
+    Triangle polygons[65535*50];
+
+    int draw_count;
+    Triangle polygons_to_draw[65535*50];
 };
 
 struct GameState {
@@ -114,17 +130,6 @@ struct GameState {
 #if SSE
     Vertex4Cube particle_vert[MAX_PARTICLES];
 #else
-    int vertex_count;
-    V3 vertex_list[65535];
-    
-    int screen_vertex_count;
-    V3Screen screen_vertices[65535];
-
-    int polygon_count;
-    Triangle polygons[65535];
-
-    int draw_count;
-    Triangle polygons_to_draw[65535];
 
 #endif
 
@@ -137,7 +142,7 @@ struct GameState {
 #endif
 };
 
-static void PlatformFreeFile(char *filepath);
+static void PlatformFreeFile(void *filebuffer);
 static ReadFileResult PlatformReadFile(char *filepath);
 #define PHYSICS_H
 #endif // !PHYSICS_H
