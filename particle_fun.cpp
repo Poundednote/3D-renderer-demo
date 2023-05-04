@@ -52,7 +52,7 @@ static void create_random_particles(GameState *state,
         int vertex_start = render_state->vertex_count;
         for (int vert = 0; vert < mesh->vert_count; ++vert) {
             render_state->vertex_list[render_state->vertex_count++] = 
-                (0.5*mesh->vertices[vert])+state->particles.pos[i];
+                (mesh->vertices[vert])+state->particles.pos[i];
         }
 
         for (int vert = 0; vert < mesh->vertexn_count; ++vert) {
@@ -96,7 +96,7 @@ static void create_side_by_side_particles(GameState *state,
         int vertex_start = render_state->vertex_count;
         for (int vert = 0; vert < mesh->vert_count; ++vert) {
             render_state->vertex_list[render_state->vertex_count++] 
-                = (0.1f*mesh->vertices[vert])+state->particles.pos[i];
+                = (mesh->vertices[vert])+state->particles.pos[i];
         }
 
         int vertexnorm_start = render_state->vertexn_count;
@@ -216,7 +216,8 @@ void game_update_and_render(GameMemory *memory,
         state->camera.pos.y = 0;
         state->camera.pos.z = 0;
         state->camera.zfar = 5000; 
-        state->camera.znear = 1; 
+        state->camera.znear = 0.1f; 
+        state->camera.znear = 1.1f; 
         state->camera.fov = PI/3.0f;
         state->move_speed = 1.0f;
         memory->is_initialised = true;
@@ -344,7 +345,7 @@ void game_update_and_render(GameMemory *memory,
         Vertex4Cube *cube = &state->particle_vert[cube_count++];
 #else
         for (int vert = 0; vert < sphere_mesh->vert_count; ++vert) {
-            render_state->vertex_list[render_state->vertex_count++] = (0.1f*sphere_mesh->vertices[vert]) + state->particles.pos[i];
+            render_state->vertex_list[render_state->vertex_count++] = (sphere_mesh->vertices[vert]) + state->particles.pos[i];
         }
         for (int normal = 0; normal < sphere_mesh->vertexn_count; ++normal) {
             render_state->vertexn_list[render_state->vertexn_count++] = sphere_mesh->vertexn[normal]; 

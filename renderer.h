@@ -61,9 +61,9 @@ struct Triangle {
     int vn1;
     int vn2;
     int vn3;
-    uint32_t v1_color;
-    uint32_t v2_color;
-    uint32_t v3_color;
+    V3 v1_color;
+    V3 v2_color;
+    V3 v3_color;
 };
 
 struct Mesh {
