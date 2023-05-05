@@ -67,14 +67,19 @@ struct Triangle {
 };
 
 struct Mesh {
-    V3 vertices[65535];
+    V3 vertices[65536*2];
     int vert_count;
     
-    V3 vertexn[65535];
+    V3 vertexn[65536*2];
     int vertexn_count;
 
-    Triangle polygons[65535];
+    Triangle polygons[65536];
     int poly_count;
+};
+
+struct RenderObj {
+    V3 *vertex_position;
+    int vert_count;
 };
 
 struct RendererState {
@@ -83,9 +88,6 @@ struct RendererState {
 
     int vertexn_count;
     V3 vertexn_list[65536*100];
-    
-    int screen_vertex_count;
-    V3Screen screen_vertices[65536*100];
 
     int polygon_count;
     Triangle polygons[65536*50];
@@ -93,82 +95,3 @@ struct RendererState {
     int draw_count;
     Triangle polygons_to_draw[65536*30];
 };
-
-static void renderer_vertex4_to_v2screen(Vertex4 *in,
-                                GameCamera *camera,
-                                int screen_width,
-                                int screen_height,
-                                int count,
-                                V3Screen4 *out);
-
-static V3 renderer_world_vertex_to_view(V3 world_pos, 
-                                                  GameCamera *camera, 
-                                                  int buffer_width, 
-                                                  int buffer_height);
-
-static bool renderer_v3_should_clip(V3 pos, GameCamera *camera, float aspect_ratio);
-
-static V3Screen renderer_world_vertex_to_screen(V3 world_pos, 
-                                                          GameCamera *camera, 
-                                                          int buffer_width, 
-                                                          int buffer_height);
-
-static void renderer_world_vertices_to_screen(V3 *in, 
-                                                        GameCamera *camera, 
-                                                        int count, 
-                                                        int buffer_width, 
-                                                        int buffer_height, 
-                                                        V3Screen *out);
-
-static bool renderer_check_v2screen_invalid(V3Screen screen, 
-                                            int screen_width, 
-                                            int screen_height);
-
-static void renderer_draw_background(OffscreenBuffer *buffer);
-static void renderer_draw_line(OffscreenBuffer *buffer, 
-                               V3Screen start, 
-                               V3Screen end, 
-                               uint32_t color);
-
-static void renderer_transform_and_draw_line(OffscreenBuffer *buffer, 
-                                             V3 v_start, 
-                                             V3 v_end, 
-                                             GameCamera *camera, 
-                                             uint32_t color);
-
-static void renderer_draw_triangle_wireframe(OffscreenBuffer *buffer, 
-                                             V3Screen v1,
-                                             V3Screen v2,
-                                             V3Screen v3,
-                                             uint32_t color);
-
-static void renderer_v2screen4_draw_triangle_wireframe(OffscreenBuffer *buffer, 
-                                                       V3Screen4 *vertices, 
-                                                       Triangle *triangles, 
-                                                       uint32_t color, 
-                                                       int count);
-
-static void renderer_draw_flat_top_triangle(OffscreenBuffer *buffer, 
-                                            V3Screen v1, 
-                                            V3Screen v2, 
-                                            V3Screen v3, 
-                                            uint32_t color);
-
-static void renderer_draw_flat_bottom_triangle(OffscreenBuffer *buffer, 
-                                               V3Screen v1,
-                                               V3Screen v2,
-                                               V3Screen v3,
-                                               uint32_t color);
-
-static void renderer_draw_triangles_filled(OffscreenBuffer *buffer,
-                                           V3Screen *vertices,
-                                           Triangle *triangles,
-                                           uint32_t *colors,
-                                           int count);
-
-static void renderer_v2screen4_draw_triangle_filled(OffscreenBuffer *buffer,
-                                                    V3Screen4 *vertices,
-                                                    Triangle *triangles,
-                                                    uint32_t *colors,
-                                                    int colors_size,
-                                                    int tricount);

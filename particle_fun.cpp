@@ -22,6 +22,40 @@ static uint32_t parkmiller_rand(uint32_t *state) {
     return *state;
 }
 
+static void load_mesh_from_file(char *filename, Mesh *out) {
+    ReadFileResult mesh_obj = PlatformReadFile(filename);
+    for (uint32_t i = 0; i < mesh_obj.size; ++i) {
+        //find first character begging with v
+        char *string = (char *)mesh_obj.file;
+        if (string[i] == 'v') {
+            if (string[++i] == 'n') {
+                float x, y, z;
+                sscanf_s(string+(++i), "%f %f %f\n", &x, &y, &z); 
+                out->vertexn[out->vertexn_count++] = v3_norm((v3(x, y, -z)));
+            }
+
+            else {
+                float x, y, z;
+                sscanf_s(string+(i), "%f %f %f\n", &x, &y, &z); 
+                out->vertices[out->vert_count++] = v3(x, y, -z);
+            }
+        }
+        if (string[i] == 'f') {
+            Triangle polygon;
+            sscanf_s(string+(++i), "%d/%*d/%d %d/%*d/%d %d/%*d/%d\n", 
+                    &polygon.v3, &polygon.vn3, &polygon.v2, &polygon.vn2, &polygon.v1, &polygon.vn1); 
+            polygon.v1 -= 1;
+            polygon.v2 -= 1;
+            polygon.v3 -= 1;
+            polygon.vn1 -= 1;
+            polygon.vn2 -= 1;
+            polygon.vn3 -= 1;
+
+            out->polygons[out->poly_count++] = polygon;
+        }
+    }
+    PlatformFreeFile(mesh_obj.file);
+}
 
 #if DEBUG_MODE
 
@@ -142,48 +176,18 @@ void game_update_and_render(GameMemory *memory,
 
     GameState *state = (GameState *)memory->permanent_storage;
     RendererState *render_state = (RendererState *)memory->transient_storage;
-    Mesh *sphere_mesh = (Mesh *)((char *)memory->transient_storage+sizeof(RendererState));
+    Assets *assets = (Assets *)((char*)memory->transient_storage+sizeof(RendererState));
+    Mesh *sphere_mesh = &assets->meshes[0];
     if (!memory->is_initialised) {
-        ReadFileResult sphere_obj = PlatformReadFile("sphere.obj");
-        render_state->polygon_count = 0;
-        for (uint32_t i = 0; i < sphere_obj.size; ++i) {
-            //find first character begging with v
-            char *string = (char *)sphere_obj.file;
-            if (string[i] == 'v') {
-                if (string[++i] == 'n') {
-                    float x, y, z;
-                    sscanf_s(string+(++i), "%f %f %f\n", &x, &y, &z); 
-                    sphere_mesh->vertexn[sphere_mesh->vertexn_count++] = v3_norm((v3(x, y, -z)));
-                }
-
-                else {
-                    float x, y, z;
-                    sscanf_s(string+(i), "%f %f %f\n", &x, &y, &z); 
-                    sphere_mesh->vertices[sphere_mesh->vert_count++] = v3(x, y, -z);
-                }
-            }
-            if (string[i] == 'f') {
-                Triangle polygon;
-                sscanf_s(string+(++i), "%d/%*d/%d %d/%*d/%d %d/%*d/%d\n", 
-                         &polygon.v3, &polygon.vn3, &polygon.v2, &polygon.vn2, &polygon.v1, &polygon.vn1); 
-                polygon.v1 -= 1;
-                polygon.v2 -= 1;
-                polygon.v3 -= 1;
-                polygon.vn1 -= 1;
-                polygon.vn2 -= 1;
-                polygon.vn3 -= 1;
-                
-                sphere_mesh->polygons[sphere_mesh->poly_count++] = polygon;
-            }
-        }
-        PlatformFreeFile(sphere_obj.file);
-        
+        render_state->polygon_count = 0; 
+        load_mesh_from_file("sphere.obj", sphere_mesh);
         //set GRAVITY
         gravity.y = -9.81f; 
 #if DEBUG_MODE
-        create_random_particles(state, render_state, 100, sphere_mesh, 120312);
-        create_side_by_side_particles(state, render_state, 10, v3(10,0,0), v3(0,0,0), sphere_mesh);
+        create_random_particles(state, render_state, 300, sphere_mesh, 120312);
+        create_side_by_side_particles(state, render_state, 10, v3(2.5,0,0), v3(0,0,0), sphere_mesh);
         create_side_by_side_particles(state, render_state, 10, v3(0,10,0), v3(0,0,0), sphere_mesh);
+        create_side_by_side_particles(state, render_state, 1, v3(0,0,0), v3(0,10,-30), sphere_mesh);
 #endif
 
 #if 0
@@ -220,7 +224,7 @@ void game_update_and_render(GameMemory *memory,
         state->camera.znear = 0.1f; 
         state->camera.znear = 1.1f; 
         state->camera.fov = PI/3.0f;
-        state->move_speed = 1.0f;
+        state->move_speed = 5.0f*TIME_FOR_FRAME;
         memory->is_initialised = true;
     }
 
@@ -234,8 +238,7 @@ void game_update_and_render(GameMemory *memory,
 
     render_state->vertex_count = 0;
     render_state->vertexn_count = 0;
-    render_state->screen_vertex_count = 0;
-    renderer_draw_background(buffer, 0xFFFF00FF); 
+    renderer_draw_background(buffer, 0); 
 
     //clear z buffer every frame
     uint32_t zbuffer_size = zbuffer->width * zbuffer->height;
@@ -245,7 +248,7 @@ void game_update_and_render(GameMemory *memory,
     }
 
 
-    float timestep = TIME_FOR_FRAME;
+    float timestep = TIME_FOR_FRAME/100;
 
 
     {
@@ -340,16 +343,12 @@ void game_update_and_render(GameMemory *memory,
     int cube_count = 0;
     int screen_count = 0;
     for (int i = 0;i < state->particle_count; i++) {
-
 #if SSE
         V2Screen4 screen[2];
         Vertex4Cube *cube = &state->particle_vert[cube_count++];
 #else
         for (int vert = 0; vert < sphere_mesh->vert_count; ++vert) {
-            render_state->vertex_list[render_state->vertex_count++] = (sphere_mesh->vertices[vert]) + state->particles.pos[i];
-        }
-        for (int normal = 0; normal < sphere_mesh->vertexn_count; ++normal) {
-            render_state->vertexn_list[render_state->vertexn_count++] = sphere_mesh->vertexn[normal]; 
+            render_state->vertex_list[render_state->vertex_count++] = (0.5f*sphere_mesh->vertices[vert]) + state->particles.pos[i];
         }
 #endif
     }
@@ -365,7 +364,6 @@ void game_update_and_render(GameMemory *memory,
     // update the simulation time until it syncs with the time after 1 video frame
     float t = state->time + TIME_FOR_FRAME;
     while (state->time < t) {
-
 
         // check for collisions and apply global forces
 
@@ -516,7 +514,10 @@ void game_update_and_render(GameMemory *memory,
 
             //zero forces
             state->particles.f_accumulator[i] = {}; 
-            state->particles.f_accumulator[i] += -(COEFFICIENT_OF_DRAG*state->particles.vel[i]); 
+            //state->particles.f_accumulator[i] += -(COEFFICIENT_OF_DRAG*state->particles.vel[i]); 
+#if GRAVITY
+            state->particles.f_accumulator[i] += gravity; 
+#endif
         }
 
         // apply springs forces
@@ -542,20 +543,22 @@ void game_update_and_render(GameMemory *memory,
         }
 
 #endif
-
-       renderer_transform_light_and_cull(render_state,
-                                         &state->camera, 
-                                         buffer->width, 
-                                         buffer->height);
-
-
-       renderer_draw_triangles_filled(buffer,
-                                      zbuffer,
-                                      render_state->screen_vertices,
-                                      render_state->polygons_to_draw, 
-                                      render_state->draw_count);
-
        state->time += timestep;
+
+#if DEBUG_MODE
+       state->frame_counter++;
+#endif
     }
+    renderer_transform_light_and_cull(render_state,
+            &state->camera, 
+            buffer->width, 
+            buffer->height);
+
+
+    renderer_draw_triangles_filled(buffer,
+            zbuffer,
+            render_state->vertex_list,
+            render_state->polygons_to_draw, 
+            render_state->draw_count);
 
 } 

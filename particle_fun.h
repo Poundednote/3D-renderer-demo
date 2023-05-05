@@ -128,6 +128,10 @@ struct GameState {
 #endif
 };
 
+struct Assets {
+    Mesh meshes[256];
+};
+
 static void PlatformFreeFile(void *filebuffer);
 static ReadFileResult PlatformReadFile(char *filepath);
 #define PHYSICS_H
