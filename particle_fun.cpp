@@ -181,8 +181,9 @@ void game_update_and_render(GameMemory *memory,
         //set GRAVITY
         gravity.y = -9.81f; 
 #if DEBUG_MODE
+        create_random_particles(state, render_state, 100, sphere_mesh, 120312);
         create_side_by_side_particles(state, render_state, 10, v3(10,0,0), v3(0,0,0), sphere_mesh);
-        create_side_by_side_particles(state, render_state, 10, v3(0,0,10), v3(0,0,0), sphere_mesh);
+        create_side_by_side_particles(state, render_state, 10, v3(0,10,0), v3(0,0,0), sphere_mesh);
 #endif
 
 #if 0
