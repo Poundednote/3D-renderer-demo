@@ -49,16 +49,20 @@ struct ParticleSystem {
     V3 vel[MAX_PARTICLES];
     V3 f_accumulator[MAX_PARTICLES];
     int spatial_mask[MAX_PARTICLES];
+    int particle_count;
+
+    RenderObj render_obj[MAX_PARTICLES];
 };
 
 struct Spring {
-    Particle *p1;
-    Particle *p2;
+    int p1index;
+    int p2index;
 
     float spring_const;
     float damping_const;
     
     float rest_length;
+    RenderObj render_obj;
 };
 
 struct GameInput {
@@ -102,7 +106,6 @@ struct GameState {
     float time;
 
     ParticleSystem particles;
-    int particle_count;
 
     Spring springs[256];
     int spring_count;

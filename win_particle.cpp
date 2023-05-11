@@ -83,6 +83,7 @@ static ReadFileResult PlatformReadFile(char *filepath) {
 
 static LRESULT CALLBACK win32_window_proc(HWND window, UINT message, 
                                  WPARAM w_param, LPARAM l_param) {
+
     LRESULT result = 0;
     switch (message) {
         case WM_CLOSE:
@@ -95,8 +96,8 @@ static LRESULT CALLBACK win32_window_proc(HWND window, UINT message,
             PAINTSTRUCT paint;
             HDC dc_paint = BeginPaint(window, &paint);
             win32_stretch_buffer_to_window(window,  dc_paint, vid_buf);
-
             EndPaint(window, &paint);
+            break;
         }
 
         default:
@@ -135,11 +136,11 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE prev_instance,
                                  NULL, NULL, instance, NULL);
     if (!window) {
         OutputDebugStringA("ERROR CREATING WINDOW\n");
-        return 0;
+     return 0;
     }
 
     HDC dc_window = GetDC(window);
-    
+
     vid_buf.height = 720;
     vid_buf.width = 1280;
     vid_buf.bytes_per_pixel = 4;
@@ -184,31 +185,56 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE prev_instance,
     uint32_t zbuffer_size = zbuffer.width*zbuffer.height*zbuffer.bytes_per_pixel;
     zbuffer.memory = VirtualAlloc(0, zbuffer_size, MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
     
+    GameInput input = {}; 
+    bool window_in_focus = true;
+    RECT old_clip;
+    GetClipCursor(&old_clip);
     LARGE_INTEGER previous_counter; 
     QueryPerformanceCounter(&previous_counter);
-    GameInput input = {}; 
-
     RUNNING = true;
     while (RUNNING) {
+        if (GetActiveWindow() != window) {
+            window_in_focus = false;
+        }
+
+        else {
+            window_in_focus = true;
+        }
 
         LARGE_INTEGER start_counter = previous_counter;
 
         MSG msg;
 
-        HDESK desktop = OpenInputDesktop(0, 0, DELETE|DESKTOP_SWITCHDESKTOP);
-        SetThreadDesktop(desktop);
-        
-        POINT cursor;
-        GetCursorPos(&cursor);
-        ScreenToClient(window, &cursor);
-        input.mouse_pos.x = cursor.x;
-        input.mouse_pos.y = cursor.y;
-
+        input.mouse_pos.x = 0;
+        input.mouse_pos.y = 0;
         input.mouse_lbutton_click = false;
         input.action = false;
 
         static float time = 0;
         static uint32_t count;
+        RECT client_rect;
+        GetClientRect(window, &client_rect);
+        int mid_x = (client_rect.left + client_rect.right) / 2;
+        int mid_y = (client_rect.bottom + client_rect.top) / 2;
+        POINT center = {};
+        center.x = mid_x;
+        center.y = mid_y;
+        ClientToScreen(window, &center);
+        RECT center_clip;
+        center_clip.left = center.x-2;
+        center_clip.right = center.x+2;
+        center_clip.top = center.y-2;
+        center_clip.bottom = center.y+2;
+        if (window_in_focus) {
+            SetCursorPos(center.x, center.y);
+            ClipCursor(&center_clip);
+        }
+
+        else {
+            ClipCursor(&old_clip);
+        }
+        
+        ScreenToClient(window, &center);
 
         while (PeekMessageA(&msg, NULL, 0, 0, PM_REMOVE)) {
 
@@ -372,8 +398,11 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE prev_instance,
                     if (msg.wParam & MK_LBUTTON) {
                         input.mouse_lclickdrag = true;
                     }
-
-                   break;
+                    if (window_in_focus) {
+                        input.mouse_pos.x = GET_X_LPARAM(msg.lParam)-center.x;
+                        input.mouse_pos.y = GET_Y_LPARAM(msg.lParam)-center.y;
+                    }
+                    OutputDebugString("MOUSEMOVE\n");
                 }
 
                 default: 
@@ -386,6 +415,7 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE prev_instance,
                                &game_buffer, 
                                &zbuffer,
                                &input);
+
 
         if (!vid_buf.bitmap_memory) {
             OutputDebugStringA("lost bitmap_memory\n");

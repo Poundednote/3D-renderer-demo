@@ -3,6 +3,7 @@
 #ifndef PHYSICS_MATH_H
 
 #define FLT_MAX 3.402823466e+38F
+#define FLT_MIN 1.175494351e-38F
 
 struct V3 {
     float x, y, z;
@@ -99,6 +100,14 @@ static inline V3 v3_cross(V3 a, V3 b) {
     result.y = a.z*b.x - a.x*b.z;
     result.z = a.x*b.y - a.y*b.x;
 
+    return result;
+}
+
+static inline V3 v3_pariwise_mul(V3 a, V3 b) {
+    V3 result;
+    result.x = a.x*b.x;
+    result.y = a.y*b.y;
+    result.z = a.z*b.z;
     return result;
 }
 

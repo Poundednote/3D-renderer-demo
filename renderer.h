@@ -75,11 +75,13 @@ struct Mesh {
 
     Triangle polygons[65536];
     int poly_count;
+    float min_y;
+    float max_y;
 };
 
 struct RenderObj {
-    V3 *vertex_position;
-    int vert_count;
+    int index;
+    Mesh *mesh;
 };
 
 struct RendererState {

@@ -148,7 +148,7 @@ static V3Screen renderer_world_vertex_to_screen(V3 world_pos,
 }
 
 inline static float compute_light_intensity(V3 source, V3 vertex, V3 normal) {
-        return v3_dot(v3_norm(source-vertex), normal);
+       return v3_dot(v3_norm(source-vertex), normal);
 }
 
 static void renderer_transform_light_and_cull(RendererState *render_state,
@@ -173,7 +173,7 @@ static void renderer_transform_light_and_cull(RendererState *render_state,
         }
 
         else {
-            current->v1_color = v3(0, v1_light, 0);
+            current->v1_color = v3(v1_light, v1_light, v1_light);
         }
 
         float v2_light = compute_light_intensity(light_source, vertex2, vn2);
@@ -182,7 +182,7 @@ static void renderer_transform_light_and_cull(RendererState *render_state,
         }
 
         else {
-            current->v2_color = v3(0, v2_light, 0);
+            current->v2_color = v3(v2_light, v2_light, v2_light);
         }
 
         float v3_light = compute_light_intensity(light_source, vertex3, vn3);
@@ -192,7 +192,7 @@ static void renderer_transform_light_and_cull(RendererState *render_state,
         }
 
         else {
-            current->v3_color = v3(0, v3_light, 0);
+            current->v3_color = v3(v3_light, v3_light, v3_light);
         }
 #else 
         current->v1_color = v3(1,0,0);
@@ -345,6 +345,22 @@ static void renderer_draw_line_zcull(OffscreenBuffer *buffer,
                                      V3 start_color,
                                      V3 end_color) {
 
+    if (start.x < 0) {
+        start.x = 0;
+    }
+
+    else if (start.x >= 1280) {
+        start.x = 1279;
+    }
+
+    if (start.y < 0) {
+        start.y = 0;
+    }
+
+    else if (start.y >= 720) {
+        start.y = 719;
+    }
+
     if (start.x > end.x) {
         V3 temp = end;
         end = start;
@@ -392,7 +408,6 @@ static void renderer_draw_line_zcull(OffscreenBuffer *buffer,
     for (int draw = 0; draw < step; ++draw) {
         int offset = (int)(x)*buffer->bytes_per_pixel + 
                      (int)(y)*buffer->pitch;
-
         float *depth_value = (float *)((uint8_t *)zbuffer->memory + offset);
     
            if ((z < *depth_value)) {
@@ -695,5 +710,46 @@ static void renderer_draw_triangles_filled(OffscreenBuffer *buffer,
             renderer_draw_flat_bottom_triangle(buffer, zbuffer, vert4, vert2, vert3, v4_color, v2_color, v3_color);
         }
     }
+}
 
+static RenderObj create_render_obj(RendererState *render_state, Mesh *mesh) {
+    RenderObj result = {};
+    int vertex_start = render_state->vertex_count;
+    for (int vert = 0; vert < mesh->vert_count; ++vert) {
+        render_state->vertex_list[render_state->vertex_count++] = mesh->vertices[vert];
+    }
+
+    int vertexnorm_start = render_state->vertexn_count;
+    for (int normal = 0; normal < mesh->vertexn_count; ++normal) {
+        render_state->vertexn_list[render_state->vertexn_count++] =
+            mesh->vertexn[normal];
+    }
+
+    for (int polygon = 0; polygon < mesh->poly_count; ++polygon) {
+        render_state->polygons[render_state->polygon_count] = mesh->polygons[polygon];
+        render_state->polygons[render_state->polygon_count].v1 += vertex_start;
+        render_state->polygons[render_state->polygon_count].v2 += vertex_start;
+        render_state->polygons[render_state->polygon_count].v3 += vertex_start;
+        render_state->polygons[render_state->polygon_count].vn1 += vertexnorm_start;
+        render_state->polygons[render_state->polygon_count].vn2 += vertexnorm_start;
+        render_state->polygons[render_state->polygon_count].vn3 += vertexnorm_start;
+        render_state->polygon_count++;
+    }
+
+
+    result.index = vertex_start;
+    result.mesh = mesh;
+
+    return result;
+}
+
+static void update_render_obj(RendererState *render_state, 
+                              RenderObj *obj, 
+                              V3 scale, 
+                              Quaternion rotation, V3 translation) {
+
+    for (int vertex = 0; vertex < obj->mesh->vert_count; ++vertex) {
+        render_state->vertex_list[obj->index+vertex] = 
+            v3_rotate_q4(v3_pariwise_mul(scale,obj->mesh->vertices[vertex]), rotation) + translation;
+    }
 }

@@ -22,7 +22,7 @@ static uint32_t parkmiller_rand(uint32_t *state) {
     return *state;
 }
 
-inline static void string_inc_til_char(const char *string, char character, uint32_t *i) {
+static void string_inc_til_char(const char *string, char character, uint32_t *i) {
     for (;string[*i] != character; ++(*i)) {
         continue;
     }
@@ -30,8 +30,6 @@ inline static void string_inc_til_char(const char *string, char character, uint3
 
 static void load_mesh_from_file(char *filename, Mesh *out) {
     ReadFileResult mesh_obj = PlatformReadFile(filename);
-    out->min_y = FLT_MAX;
-    out->max_y = FLT_MIN;
     char *string = (char *)mesh_obj.file;
     for (uint32_t i = 0; i < mesh_obj.size; ++i) {
         if (string[i] == '#') {
@@ -42,7 +40,7 @@ static void load_mesh_from_file(char *filename, Mesh *out) {
             if (string[i] == 'n') {
                 float x, y, z;
                 sscanf_s(string+(++i), "%f %f %f\n", &x, &y, &z); 
-                out->vertexn[out->vertexn_count++] = v3_norm((v3(x, y, z)));
+                out->vertexn[out->vertexn_count++] = v3_norm((v3(x, y, -z)));
             }
             else if (string[i] == 't') {
                 continue;
@@ -52,13 +50,6 @@ static void load_mesh_from_file(char *filename, Mesh *out) {
                 float x, y, z;
                 sscanf_s(string+(i), "%f %f %f\n", &x, &y, &z); 
                 out->vertices[out->vert_count++] = v3(x, y, -z);
-                if (y > out->max_y) {
-                    out->max_y = y; 
-                }
-
-                if (y < out->min_y) {
-                    out->min_y = y;
-                }
             }
         }
         else if (string[i] == 'f') {
@@ -100,6 +91,29 @@ static void load_mesh_from_file(char *filename, Mesh *out) {
     PlatformFreeFile(mesh_obj.file);
 }
 
+static void add_mesh_to_renderer(RendererState *render_state, Mesh *mesh) {
+    int vertex_start = render_state->vertex_count;
+    for (int vert = 0; vert < mesh->vert_count; ++vert) {
+        render_state->vertex_list[render_state->vertex_count++] = mesh->vertices[vert];
+    }
+
+    int vertexnorm_start = render_state->vertexn_count;
+    for (int normal = 0; normal < mesh->vertexn_count; ++normal) {
+        render_state->vertexn_list[render_state->vertexn_count++] =
+            mesh->vertexn[normal];
+    }
+
+    for (int polygon = 0; polygon < mesh->poly_count; ++polygon) {
+        render_state->polygons[render_state->polygon_count] = mesh->polygons[polygon];
+        render_state->polygons[render_state->polygon_count].v1 += vertex_start;
+        render_state->polygons[render_state->polygon_count].v2 += vertex_start;
+        render_state->polygons[render_state->polygon_count].v3 += vertex_start;
+        render_state->polygons[render_state->polygon_count].vn1 += vertexnorm_start;
+        render_state->polygons[render_state->polygon_count].vn2 += vertexnorm_start;
+        render_state->polygons[render_state->polygon_count].vn3 += vertexnorm_start;
+        render_state->polygon_count++;
+    }
+}
 
 #if DEBUG_MODE
 
@@ -122,8 +136,11 @@ static void create_random_particles(ParticleSystem *particles,
         particles->vel[particles->particle_count].z = 0;
 #endif
         particles->f_accumulator[particles->particle_count] = {};
-        particles->render_obj[particles->particle_count] = create_render_obj(render_state, mesh);
+        particles->position_in_vbuffer[particles->particle_count] = render_state->vertex_count;
+        particles->mesh = mesh;
+
         particles->particle_count++;
+        add_mesh_to_renderer(render_state, mesh);
     }
 }
 
@@ -140,25 +157,26 @@ static void create_side_by_side_particles(ParticleSystem *particles,
         particles->radius[particles->particle_count] = particles->mass[particles->particle_count];
         particles->pos[particles->particle_count] = ((float)i*pad)+start;
         particles->f_accumulator[particles->particle_count] = {};
-        particles->render_obj[particles->particle_count] = create_render_obj(render_state, mesh);
+        particles->position_in_vbuffer[particles->particle_count] = render_state->vertex_count;
+        particles->mesh = mesh;
+        add_mesh_to_renderer(render_state, mesh);
 
         particles->particle_count++;
     }
 }
-
 #endif
 
-inline static void spring_apply_force(GameState *state, Spring *spring) {
+inline static void spring_apply_force(Spring *spring) {
 
-    V3 l = state->particles.pos[spring->p1index] - state->particles.pos[spring->p2index];
-    V3 dl = state->particles.vel[spring->p1index] - state->particles.vel[spring->p1index];
+    V3 l = spring->p1->pos - spring->p2->pos;
+    V3 dl = spring->p1->vel - spring->p2->vel;
 
     V3 force = -((spring->spring_const*(v3_mag(l) - spring->rest_length)) + 
             spring->damping_const*((v3_dot(l, dl))/v3_mag(l))) * (l/v3_mag(l));
 
-    state->particles.f_accumulator[spring->p1index] += force;
+    spring->p1->f_accumulator += force;
 
-    state->particles.f_accumulator[spring->p2index] += -force;
+    spring->p2->f_accumulator += -force;
 }
 
 void game_update_and_render(GameMemory *memory, 
@@ -179,28 +197,37 @@ void game_update_and_render(GameMemory *memory,
         //set GRAVITY
         gravity.y = -9.81f; 
 #if DEBUG_MODE
-        create_side_by_side_particles(&state->particles, render_state, 10, v3(0,1,0), v3(5,0,0), sphere_mesh);
+        //create_random_particles(state, render_state, 300, sphere_mesh, 120312);
+        //create_side_by_side_particles(&state->particles, render_state, 10, v3(10,0,0), v3(0,0,0), sphere_mesh);
+        //create_side_by_side_particles(&state->particles, render_state, 10, v3(0,10,0), v3(0,0,0), sphere_mesh);
+        //create_side_by_side_particles(&state->particles, render_state, 1, v3(0,0,0), v3(0,10,-30), sphere_mesh);
+        add_mesh_to_renderer(render_state, spring_mesh);
 #endif
 
+#if 0
         Spring *spring = &state->springs[state->spring_count++];
-        spring->p1index = state->particles.particle_count++;
-        spring->p2index = state->particles.particle_count++;
+        spring->p1 = &state->particles[state->particle_count++];
+        spring->p2 = &state->particles[state->particle_count++];
         spring->spring_const = 3.0f;
         spring->damping_const = 0.2f;
         spring->rest_length = 3;
 
+        spring->p1->mass = 1;
+        spring->p1->radius = 1;
+        spring->p1->pos.x = 0;
+        spring->p1->pos.y = 0; 
+        spring->p1->has_drag = true;
+        spring->p1->has_grav = true;
+        spring->p1->is_anchor = true;
 
-        state->particles.mass[spring->p1index] = 1;
-        state->particles.radius[spring->p1index] = 1;
-        state->particles.pos[spring->p1index] = v3(0,-5,0);
-        state->particles.render_obj[spring->p1index] = create_render_obj(render_state, sphere_mesh);
-
-        state->particles.mass[spring->p2index] = 1;
-        state->particles.radius[spring->p2index] = 1;
-        state->particles.pos[spring->p2index] = v3(0,0,0);
-        state->particles.render_obj[spring->p2index] = create_render_obj(render_state, sphere_mesh);
-        
-        spring->render_obj = create_render_obj(render_state, spring_mesh);
+        spring->p2->mass = 1;
+        spring->p2->radius = 1;
+        spring->p2->pos.x = 0 + 5;
+        spring->p2->pos.y = 0;
+        spring->p2->has_drag = true;
+        spring->p2->has_grav = true;
+        spring->p2->is_anchor = false;
+#endif
 
         state->camera.width = 300;
         state->camera.height = 300;
@@ -211,7 +238,7 @@ void game_update_and_render(GameMemory *memory,
         state->camera.znear = 0.1f; 
         state->camera.znear = 1.1f; 
         state->camera.fov = PI/3.0f;
-        state->move_speed = 89.4f*TIME_FOR_FRAME;
+        state->move_speed = 5.0f*TIME_FOR_FRAME;
         memory->is_initialised = true;
     }
 
@@ -222,7 +249,7 @@ void game_update_and_render(GameMemory *memory,
     }
 #endif
 
-    renderer_draw_background(buffer, 0xFFFF00FF); 
+    renderer_draw_background(buffer, 0xFF030303); 
 
     //clear z buffer every frame
     uint32_t zbuffer_size = zbuffer->width * zbuffer->height;
@@ -232,7 +259,7 @@ void game_update_and_render(GameMemory *memory,
     }
 
 
-    float timestep = TIME_FOR_FRAME;
+    float timestep = TIME_FOR_FRAME/100;
 
 
     {
@@ -244,17 +271,17 @@ void game_update_and_render(GameMemory *memory,
             }
         }
             
-        float mouse_x = (float)input->mouse_pos.x*((float)buffer->width/(float)buffer->height);
+        float mouse_x = (float)input->mouse_pos.x;
         float mouse_y = (float)input->mouse_pos.y;
-        mouse_y = mouse_y; 
-        float mouse_mag = (sqrtf(mouse_x*mouse_x + mouse_y*mouse_y));
+        mouse_y = mouse_y / ((float)buffer->width/(float)buffer->height);
+        float mouse_mag = sqrtf(mouse_x*mouse_x + mouse_y*mouse_y);
 
         if (input->mouse_pos.x) {
-            state->camera.theta_y += ((mouse_x/mouse_mag)*(PI/100.0f));
+            state->camera.theta_y += ((mouse_x/mouse_mag)*0.01f);
         }
 
         if (input->mouse_pos.y) {
-            state->camera.theta_x += ((mouse_y/mouse_mag)*(PI/100.0f));
+            state->camera.theta_x += ((mouse_y/mouse_mag)*0.01f);
         }
 
         if (input->camdown) {
@@ -331,21 +358,29 @@ void game_update_and_render(GameMemory *memory,
 
     int cube_count = 0;
     int screen_count = 0;
-    //draw particles
+    for (int vert = 0; vert < spring_mesh->vert_count; ++vert) {
+        render_state->vertex_list[vert] = v3(spring_mesh->vertices[vert].x, spring_mesh->vertices[vert].y*2.0f, spring_mesh->vertices[vert].z);
+    }
     for (int i = 0;i < state->particles.particle_count; i++) {
-        update_render_obj(render_state, &state->particles.render_obj[i], 
-                         0.1f*v3(1,1,1), q4(1, v3(0,0,0)), state->particles.pos[i]);
+#if SSE
+        V2Screen4 screen[2];
+        Vertex4Cube *cube = &state->particle_vert[cube_count++];
+#else
+        for (int vert = 0; vert < state->particles.mesh->vert_count; ++vert) {
+            render_state->vertex_list[state->particles.position_in_vbuffer[i]+vert] = 
+                2.0f*state->particles.mesh->vertices[vert] + state->particles.pos[i];
+        }
+#endif
     }
-    //draw_springs
+
+    //draw every spring
     for (int i = 0;i < state->spring_count; ++i) {
-        update_render_obj(render_state, &state->springs[i].render_obj,
-                          0.1f*v3(1,
-                                 (1/5.904f*(state->particles.pos[state->springs[i].p2index].y-state->particles.pos[state->springs[i].p1index].y)),
-                                 1),
-                          q4(1, v3(0,0,0)),v3(0,0,0));
-
+        Spring *spring = &state->springs[i];
+        //render_line(buffer, start_pos, end_pos);
     }
 
+    // TODO: render mouse_spring
+            
     // update the simulation time until it syncs with the time after 1 video frame
     float t = state->time + TIME_FOR_FRAME;
     while (state->time < t) {
@@ -508,19 +543,29 @@ void game_update_and_render(GameMemory *memory,
         // apply springs forces
         for (int i = 0; i < state->spring_count; ++i) {
             Spring *spring = &state->springs[i];
-            spring_apply_force(state, spring);
+            spring_apply_force(spring);
 
         }
 
+        if (state->mouse_spring.p1) {
+            Spring *spring = &state->mouse_spring; 
+            spring_apply_force(spring);
+        }
+
         //update particles
+#if 1
         //update particles;
-        for (int i = 0; i < state->particles.particle_count; ++i) {
+        for (int i = 0; i < arraysize(state->particles.pos); ++i) {
             state->particles.vel[i] += timestep * (state->particles.f_accumulator[i]/state->particles.mass[i]);
             state->particles.pos[i] += timestep * state->particles.vel[i];
         }
 
+#endif
        state->time += timestep;
 
+#if DEBUG_MODE
+       state->frame_counter++;
+#endif
     }
     renderer_transform_light_and_cull(render_state,
                                       &state->camera, 
@@ -533,9 +578,5 @@ void game_update_and_render(GameMemory *memory,
                                    render_state->vertex_list,
                                    render_state->polygons_to_draw, 
                                    render_state->draw_count);
-
-#if DEBUG_MODE
-       state->frame_counter++;
-#endif
 
 } 
