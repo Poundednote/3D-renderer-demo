@@ -43,6 +43,7 @@ struct Particle {
 };
 
 struct ParticleSystem {
+    int id[MAX_PARTICLES];
     float mass[MAX_PARTICLES];
     float radius[MAX_PARTICLES];
     V3 pos[MAX_PARTICLES];

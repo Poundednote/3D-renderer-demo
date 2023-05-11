@@ -28,10 +28,8 @@ inline static void string_inc_til_char(const char *string, char character, uint3
     }
 }
 
-static void load_mesh_from_file(char *filename, Mesh *out) {
+static void load_mesh_from_file_right(char *filename, Mesh *out) {
     ReadFileResult mesh_obj = PlatformReadFile(filename);
-    out->min_y = FLT_MAX;
-    out->max_y = FLT_MIN;
     char *string = (char *)mesh_obj.file;
     for (uint32_t i = 0; i < mesh_obj.size; ++i) {
         if (string[i] == '#') {
@@ -42,7 +40,7 @@ static void load_mesh_from_file(char *filename, Mesh *out) {
             if (string[i] == 'n') {
                 float x, y, z;
                 sscanf_s(string+(++i), "%f %f %f\n", &x, &y, &z); 
-                out->vertexn[out->vertexn_count++] = v3_norm((v3(x, y, z)));
+                out->vertexn[out->vertexn_count++] = v3_norm((v3(x, y, -z)));
             }
             else if (string[i] == 't') {
                 continue;
@@ -52,22 +50,15 @@ static void load_mesh_from_file(char *filename, Mesh *out) {
                 float x, y, z;
                 sscanf_s(string+(i), "%f %f %f\n", &x, &y, &z); 
                 out->vertices[out->vert_count++] = v3(x, y, -z);
-                if (y > out->max_y) {
-                    out->max_y = y; 
-                }
-
-                if (y < out->min_y) {
-                    out->min_y = y;
-                }
             }
         }
         else if (string[i] == 'f') {
             Triangle polygon;
-            sscanf_s(string+(++i), "%d/", &polygon.v1);
+            sscanf_s(string+(++i), "%d/", &polygon.v3);
             string_inc_til_char(string, '/', &i);
             ++i;
             string_inc_til_char(string, '/', &i);
-            sscanf_s(string+(++i), "%d", &polygon.vn1);
+            sscanf_s(string+(++i), "%d", &polygon.vn3);
 
             string_inc_til_char(string, ' ', &i);
             sscanf_s(string+(++i), "%d/", &polygon.v2);
@@ -77,11 +68,11 @@ static void load_mesh_from_file(char *filename, Mesh *out) {
             sscanf_s(string+(++i), "%d", &polygon.vn2);
 
             string_inc_til_char(string, ' ', &i);
-            sscanf_s(string+(++i), "%d/", &polygon.v3);
+            sscanf_s(string+(++i), "%d/", &polygon.v1);
             string_inc_til_char(string, '/', &i);
             ++i;
             string_inc_til_char(string, '/', &i);
-            sscanf_s(string+(++i), "%d", &polygon.vn3);
+            sscanf_s(string+(++i), "%d", &polygon.vn1);
 
             polygon.v1 -= 1;
             polygon.v2 -= 1;
@@ -111,6 +102,7 @@ static void create_random_particles(ParticleSystem *particles,
 
     for (int i = 0; i < number_of_particles; i++) { 
         //assert(state->particle_count < arraysize(state->particles));
+        particles->id[particles->particle_count] = particles->particle_count;
         particles->mass[particles->particle_count] = (float)(parkmiller_rand(&seed) % 30) + 10;
         particles->radius[particles->particle_count] = particles->mass[particles->particle_count];
         particles->pos[particles->particle_count].x = (float)(parkmiller_rand(&seed)%WORLD_WIDTH)-WORLD_RIGHT;
@@ -122,7 +114,7 @@ static void create_random_particles(ParticleSystem *particles,
         particles->vel[particles->particle_count].z = 0;
 #endif
         particles->f_accumulator[particles->particle_count] = {};
-        particles->render_obj[particles->particle_count] = create_render_obj(render_state, mesh);
+        particles->render_obj[particles->particle_count] = create_render_obj(render_state, mesh, v3(1.0f,1.0f,1.0f));
         particles->particle_count++;
     }
 }
@@ -136,14 +128,35 @@ static void create_side_by_side_particles(ParticleSystem *particles,
 
     for (int i = 0; i < number_of_particles; ++i) { 
         //assert(state->particle_count < arraysize(state->particles));
+        particles->id[particles->particle_count] = particles->particle_count;
         particles->mass[particles->particle_count] = PARTICLE_MASS;
         particles->radius[particles->particle_count] = particles->mass[particles->particle_count];
         particles->pos[particles->particle_count] = ((float)i*pad)+start;
         particles->f_accumulator[particles->particle_count] = {};
-        particles->render_obj[particles->particle_count] = create_render_obj(render_state, mesh);
+        particles->render_obj[particles->particle_count] = create_render_obj(render_state, mesh, v3(1.0f,1.0f,1.0f));
 
         particles->particle_count++;
     }
+}
+
+static int create_particle(ParticleSystem *particles, 
+                           RendererState *render_state,
+                           float mass,
+                           V3 position,
+                           V3 velocity,
+                           Mesh *mesh) {
+
+    //assert(state->particle_count < arraysize(state->particles));
+    int id = particles->particle_count;
+    particles->id[particles->particle_count] = id;
+    particles->mass[particles->particle_count] = mass;
+    particles->radius[particles->particle_count] = particles->mass[particles->particle_count];
+    particles->pos[particles->particle_count] = position;
+    particles->f_accumulator[particles->particle_count] = {};
+    particles->render_obj[particles->particle_count] = create_render_obj(render_state, mesh, v3(1,1,1));
+    particles->particle_count++;
+
+    return id;
 }
 
 #endif
@@ -174,12 +187,22 @@ void game_update_and_render(GameMemory *memory,
     Mesh *spring_mesh = &assets->meshes[1];
     if (!memory->is_initialised) {
         render_state->polygon_count = 0; 
-        load_mesh_from_file("sphere.obj", sphere_mesh);
-        load_mesh_from_file("spring.obj", spring_mesh);
+        
+       load_mesh_from_file_right("sphere.obj", sphere_mesh);
+       load_mesh_from_file_right("spring.obj", spring_mesh);
         //set GRAVITY
         gravity.y = -9.81f; 
 #if DEBUG_MODE
-        create_side_by_side_particles(&state->particles, render_state, 10, v3(0,1,0), v3(5,0,0), sphere_mesh);
+        create_random_particles(&state->particles, render_state, 500, sphere_mesh, 1);
+        create_side_by_side_particles(&state->particles, render_state, 10, v3(0,10,0), v3(0,0,0), sphere_mesh);
+        create_side_by_side_particles(&state->particles, render_state, 10, v3(10,0,0), v3(0,0,0), sphere_mesh);
+        int light_source = create_particle(&state->particles, render_state, 0.1f, v3(0, 10, -30), v3_zero(), sphere_mesh);
+
+        render_state->light_sources[render_state->light_sources_count].position = state->particles.pos[light_source];
+        render_state->light_sources[render_state->light_sources_count].color = v3(1,1,1);
+        render_state->light_sources[render_state->light_sources_count].obj = &state->particles.render_obj[light_source];
+        render_state->light_sources[render_state->light_sources_count].color = v3(1,1,1);
+        ++render_state->light_sources_count;
 #endif
 
         Spring *spring = &state->springs[state->spring_count++];
@@ -193,14 +216,14 @@ void game_update_and_render(GameMemory *memory,
         state->particles.mass[spring->p1index] = 1;
         state->particles.radius[spring->p1index] = 1;
         state->particles.pos[spring->p1index] = v3(0,-5,0);
-        state->particles.render_obj[spring->p1index] = create_render_obj(render_state, sphere_mesh);
+        state->particles.render_obj[spring->p1index] = create_render_obj(render_state, sphere_mesh, v3(1,1,1));
 
         state->particles.mass[spring->p2index] = 1;
         state->particles.radius[spring->p2index] = 1;
         state->particles.pos[spring->p2index] = v3(0,0,0);
-        state->particles.render_obj[spring->p2index] = create_render_obj(render_state, sphere_mesh);
+        state->particles.render_obj[spring->p2index] = create_render_obj(render_state, sphere_mesh, v3(1,1,1));
         
-        spring->render_obj = create_render_obj(render_state, spring_mesh);
+        spring->render_obj = create_render_obj(render_state, spring_mesh, v3(1,0,0));
 
         state->camera.width = 300;
         state->camera.height = 300;
@@ -208,8 +231,7 @@ void game_update_and_render(GameMemory *memory,
         state->camera.pos.y = 0;
         state->camera.pos.z = 0;
         state->camera.zfar = 5000; 
-        state->camera.znear = 0.1f; 
-        state->camera.znear = 1.1f; 
+        state->camera.znear = 0.01f; 
         state->camera.fov = PI/3.0f;
         state->move_speed = 89.4f*TIME_FOR_FRAME;
         memory->is_initialised = true;
@@ -222,7 +244,7 @@ void game_update_and_render(GameMemory *memory,
     }
 #endif
 
-    renderer_draw_background(buffer, 0xFFFF00FF); 
+    renderer_draw_background(buffer, 0xFF030303); 
 
     //clear z buffer every frame
     uint32_t zbuffer_size = zbuffer->width * zbuffer->height;
@@ -250,11 +272,11 @@ void game_update_and_render(GameMemory *memory,
         float mouse_mag = (sqrtf(mouse_x*mouse_x + mouse_y*mouse_y));
 
         if (input->mouse_pos.x) {
-            state->camera.theta_y += ((mouse_x/mouse_mag)*(PI/100.0f));
+            state->camera.theta_y += ((mouse_x/mouse_mag)*(PI/20.0f));
         }
 
         if (input->mouse_pos.y) {
-            state->camera.theta_x += ((mouse_y/mouse_mag)*(PI/100.0f));
+            state->camera.theta_x += ((mouse_y/mouse_mag)*(PI/20.0f));
         }
 
         if (input->camdown) {
@@ -333,16 +355,22 @@ void game_update_and_render(GameMemory *memory,
     int screen_count = 0;
     //draw particles
     for (int i = 0;i < state->particles.particle_count; i++) {
-        update_render_obj(render_state, &state->particles.render_obj[i], 
-                         0.1f*v3(1,1,1), q4(1, v3(0,0,0)), state->particles.pos[i]);
+        draw_render_obj(render_state, 
+                          &state->particles.render_obj[i], 
+                          state->particles.mass[i]*v3(1,1,1), q4(1, v3(0,0,0)), 
+                          state->particles.pos[i],
+                          v3(1,1,1));
     }
     //draw_springs
     for (int i = 0;i < state->spring_count; ++i) {
-        update_render_obj(render_state, &state->springs[i].render_obj,
-                          0.1f*v3(1,
-                                 (1/5.904f*(state->particles.pos[state->springs[i].p2index].y-state->particles.pos[state->springs[i].p1index].y)),
+        draw_render_obj(render_state, 
+                        &state->springs[i].render_obj,
+                        0.1f*v3(1,
+                                (1/5.904f*(state->particles.pos[state->springs[i].p2index].y-state->particles.pos[state->springs[i].p1index].y)),
                                  1),
-                          q4(1, v3(0,0,0)),v3(0,0,0));
+                          q4(1, v3(0,0,0)),
+                          v3(0,0,0),
+                          v3(1,0,0));
 
     }
 
@@ -531,6 +559,7 @@ void game_update_and_render(GameMemory *memory,
     renderer_draw_triangles_filled(buffer,
                                    zbuffer,
                                    render_state->vertex_list,
+                                   render_state->vertex_colors,
                                    render_state->polygons_to_draw, 
                                    render_state->draw_count);
 

@@ -21,6 +21,11 @@ static inline V3 v3(float x, float y, float z) {
     return result;
 }
 
+static inline V3 v3_zero() {
+    V3 result = {};
+    return result;
+}
+
 static inline V3 operator+(V3 a, V3 b) {
     V3 result;
     result.x = a.x + b.x;
@@ -79,7 +84,6 @@ inline V3 operator/(V3 a, float b) {
     return result;
 }
 
-
 static inline float v3_mag(V3 a) {
     return sqrtf((a.x * a.x) + (a.y * a.y) + (a.z * a.z));
 }
@@ -133,6 +137,13 @@ static Quaternion q4(float w, V3 vec) {
     result.scalar = w;
     result.vector = vec;
 
+    return result;
+}
+
+static Quaternion q4_identity() {
+    Quaternion result;
+    result.scalar = 1;
+    result.vector = {};
     return result;
 }
 

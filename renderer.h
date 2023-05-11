@@ -2,7 +2,7 @@
 #include <emmintrin.h>
 #include <stdint.h>
 
-#define BLACK 0;
+#define BLACK 0
 #define WHITE 0xFFFFFFFF
 #define RED 0xFFFF0000
 #define GREEN 0xFF00FF00
@@ -61,9 +61,6 @@ struct Triangle {
     int vn1;
     int vn2;
     int vn3;
-    V3 v1_color;
-    V3 v2_color;
-    V3 v3_color;
 };
 
 struct Mesh {
@@ -82,11 +79,20 @@ struct Mesh {
 struct RenderObj {
     int index;
     Mesh *mesh;
+    bool light_source;
+};
+
+struct LightSource {
+    RenderObj *obj;
+    V3 position;
+    V3 color;
+    float falloff;
 };
 
 struct RendererState {
     int vertex_count;
     V3 vertex_list[65536*100];
+    V3 vertex_colors[65536*100];
 
     int vertexn_count;
     V3 vertexn_list[65536*100];
@@ -96,4 +102,7 @@ struct RendererState {
 
     int draw_count;
     Triangle polygons_to_draw[65536*30];
+
+    int light_sources_count;
+    LightSource light_sources[255];
 };
