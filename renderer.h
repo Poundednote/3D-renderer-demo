@@ -79,7 +79,7 @@ struct Mesh {
 struct RenderObj {
     int index;
     Mesh *mesh;
-    bool light_source;
+    V3 color;
 };
 
 struct LightSource {

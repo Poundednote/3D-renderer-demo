@@ -90,32 +90,80 @@ static void load_mesh_from_file_right(char *filename, Mesh *out) {
     }
     PlatformFreeFile(mesh_obj.file);
 }
+static V3 randomly_distribute_around_object(ParticleSystem *particles, int object_id, float close_scale, float far_scale, uint32_t *seed) {
+    float x_offset = ((float)(parkmiller_rand(seed)%200)-100)/100.0f;
+    float y_offset = ((float)(parkmiller_rand(seed)%200)-100)/100.0f;
+    float z_offset = ((float)(parkmiller_rand(seed)%200)-100)/100.0f;
+    V3 result = {};
+    result.x = (particles->pos[object_id].x+((particles->mass[object_id]/2)*x_offset*close_scale) + 
+                (x_offset)*(far_scale));
+
+    result.y = (particles->pos[object_id].y+((particles->mass[object_id]/2)*y_offset*close_scale) + 
+                (y_offset)*(far_scale));
+
+    result.z = (particles->pos[object_id].z+((particles->mass[object_id]/2)*z_offset*close_scale) + 
+                (z_offset)*(far_scale));
+
+    return result;
+}
+
 
 
 #if DEBUG_MODE
 
-static void create_random_particles(ParticleSystem *particles, 
-                                    RendererState *render_state,
-                                    int number_of_particles, 
-                                    Mesh *mesh,
-                                    uint32_t seed) {
+static void generate_world(ParticleSystem *particles, 
+                           RendererState *render_state,
+                           int light_source_id,
+                           int number_of_particles, 
+                           Mesh *mesh,
+                           uint32_t seed) {
 
     for (int i = 0; i < number_of_particles; i++) { 
         //assert(state->particle_count < arraysize(state->particles));
         particles->id[particles->particle_count] = particles->particle_count;
-        particles->mass[particles->particle_count] = (float)(parkmiller_rand(&seed) % 30) + 10;
+        particles->mass[particles->particle_count] = (float)(parkmiller_rand(&seed) % 100);
+        if (particles->mass[particles->particle_count] < 90) {
+            particles->mass[particles->particle_count] = (float)(parkmiller_rand(&seed) % 10) + 1;
+        }
+
+        else {
+            particles->mass[particles->particle_count] = (float)(parkmiller_rand(&seed) % 5)+10;
+        }
+
         particles->radius[particles->particle_count] = particles->mass[particles->particle_count];
-        particles->pos[particles->particle_count].x = (float)(parkmiller_rand(&seed)%WORLD_WIDTH)-WORLD_RIGHT;
-        particles->pos[particles->particle_count].y = (float)(parkmiller_rand(&seed)%WORLD_HEIGHT)-WORLD_TOP;
-        particles->pos[particles->particle_count].z = (float)(parkmiller_rand(&seed)%WORLD_DEPTH)-WORLD_FORWARD;
+        particles->pos[particles->particle_count] = randomly_distribute_around_object(particles, 
+                                                                                      light_source_id, 
+                                                                                      100, 100, &seed);
 #if 1
         particles->vel[particles->particle_count].x = (float)(parkmiller_rand(&seed)%20)-10;
         particles->vel[particles->particle_count].y = (float)(parkmiller_rand(&seed)%20)-10;
         particles->vel[particles->particle_count].z = 0;
 #endif
         particles->f_accumulator[particles->particle_count] = {};
-        particles->render_obj[particles->particle_count] = create_render_obj(render_state, mesh, v3(1.0f,1.0f,1.0f));
-        particles->particle_count++;
+        float r = (float)(parkmiller_rand(&seed) % 100) / 100;
+        float g = (float)(parkmiller_rand(&seed) % 100) / 100;
+        float b = (float)(parkmiller_rand(&seed) % 100) / 100;
+
+        particles->render_obj[particles->particle_count] = create_render_obj(render_state, mesh, v3(r,g,b));
+        float mass = particles->mass[particles->particle_count];
+        int parent_id = particles->id[particles->particle_count];
+        ++particles->particle_count;
+        if (mass > 15) {
+            for (uint32_t moon = 0; moon < parkmiller_rand(&seed) % ((int)mass-20); ++moon) {
+                particles->id[particles->particle_count] = particles->particle_count;
+                particles->mass[particles->particle_count] = (float)(parkmiller_rand(&seed) % ((int)particles->mass[parent_id])-20)*0.5f;
+
+                particles->radius[particles->particle_count] = particles->mass[particles->particle_count];
+                particles->pos[particles->particle_count] = randomly_distribute_around_object(particles, 
+                                                                                              parent_id, 
+                                                                                              10, 10, &seed);
+                particles->vel[particles->particle_count] = particles->vel[parent_id];
+                particles->f_accumulator[particles->particle_count] = {};
+                particles->render_obj[particles->particle_count] = create_render_obj(render_state, mesh, v3(r,g,b));
+                ++particles->particle_count;
+
+            }
+        }
     }
 }
 
@@ -138,6 +186,7 @@ static void create_side_by_side_particles(ParticleSystem *particles,
         particles->particle_count++;
     }
 }
+#endif
 
 static int create_particle(ParticleSystem *particles, 
                            RendererState *render_state,
@@ -158,8 +207,6 @@ static int create_particle(ParticleSystem *particles,
 
     return id;
 }
-
-#endif
 
 inline static void spring_apply_force(GameState *state, Spring *spring) {
 
@@ -193,10 +240,10 @@ void game_update_and_render(GameMemory *memory,
         //set GRAVITY
         gravity.y = -9.81f; 
 #if DEBUG_MODE
-        create_random_particles(&state->particles, render_state, 500, sphere_mesh, 1);
+        int light_source = create_particle(&state->particles, render_state, 100, v3(0, 10, -30), v3_zero(), sphere_mesh);
+        generate_world(&state->particles, render_state, light_source, 50, sphere_mesh, 1);
         create_side_by_side_particles(&state->particles, render_state, 10, v3(0,10,0), v3(0,0,0), sphere_mesh);
         create_side_by_side_particles(&state->particles, render_state, 10, v3(10,0,0), v3(0,0,0), sphere_mesh);
-        int light_source = create_particle(&state->particles, render_state, 0.1f, v3(0, 10, -30), v3_zero(), sphere_mesh);
 
         render_state->light_sources[render_state->light_sources_count].position = state->particles.pos[light_source];
         render_state->light_sources[render_state->light_sources_count].color = v3(1,1,1);
@@ -230,7 +277,7 @@ void game_update_and_render(GameMemory *memory,
         state->camera.pos.x = 0;
         state->camera.pos.y = 0;
         state->camera.pos.z = 0;
-        state->camera.zfar = 5000; 
+        state->camera.zfar = 10000; 
         state->camera.znear = 0.01f; 
         state->camera.fov = PI/3.0f;
         state->move_speed = 89.4f*TIME_FOR_FRAME;
@@ -358,8 +405,7 @@ void game_update_and_render(GameMemory *memory,
         draw_render_obj(render_state, 
                           &state->particles.render_obj[i], 
                           state->particles.mass[i]*v3(1,1,1), q4(1, v3(0,0,0)), 
-                          state->particles.pos[i],
-                          v3(1,1,1));
+                          state->particles.pos[i]);
     }
     //draw_springs
     for (int i = 0;i < state->spring_count; ++i) {
@@ -369,8 +415,7 @@ void game_update_and_render(GameMemory *memory,
                                 (1/5.904f*(state->particles.pos[state->springs[i].p2index].y-state->particles.pos[state->springs[i].p1index].y)),
                                  1),
                           q4(1, v3(0,0,0)),
-                          v3(0,0,0),
-                          v3(1,0,0));
+                          v3(0,0,0));
 
     }
 
@@ -550,6 +595,7 @@ void game_update_and_render(GameMemory *memory,
        state->time += timestep;
 
     }
+
     renderer_transform_light_and_cull(render_state,
                                       &state->camera, 
                                       buffer->width, 

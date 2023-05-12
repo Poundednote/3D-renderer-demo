@@ -283,6 +283,7 @@ static void renderer_transform_light_and_cull(RendererState *render_state,
                          (tanf(camera->fov/2.0f)*aspect_ratio);
 
         float normal_y = (relative_pos.y/relative_pos.z) / 
+
                          (tanf(camera->fov/2.0f));
 
         if (normal_x <= -1) {
@@ -796,7 +797,7 @@ static RenderObj create_render_obj(RendererState *render_state, Mesh *mesh, V3 c
     }
 
     for (int polygon = 0; polygon < mesh->poly_count; ++polygon) {
-        render_state->polygons[render_state->polygon_count] = mesh->polygons[polygon];
+       render_state->polygons[render_state->polygon_count] = mesh->polygons[polygon];
         render_state->polygons[render_state->polygon_count].v1 += vertex_start;
         render_state->polygons[render_state->polygon_count].v2 += vertex_start;
         render_state->polygons[render_state->polygon_count].v3 += vertex_start;
@@ -809,6 +810,7 @@ static RenderObj create_render_obj(RendererState *render_state, Mesh *mesh, V3 c
 
     result.index = vertex_start;
     result.mesh = mesh;
+    result.color = color;
 
     return result;
 }
@@ -817,13 +819,12 @@ static void draw_render_obj(RendererState *render_state,
                             RenderObj *obj, 
                             V3 scale, 
                             Quaternion rotation, 
-                            V3 translation,
-                            V3 color) {
+                            V3 translation) {
 
     for (int vertex = 0; vertex < obj->mesh->vert_count; ++vertex) {
         render_state->vertex_list[obj->index+vertex] = 
             v3_rotate_q4(v3_pariwise_mul(scale,obj->mesh->vertices[vertex]), rotation) + translation;
 
-        render_state->vertex_colors[obj->index+vertex] = color;
+        render_state->vertex_colors[obj->index+vertex] = obj->color;
     }
 }
