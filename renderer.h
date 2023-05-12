@@ -65,19 +65,22 @@ struct Triangle {
 
 struct Mesh {
     V3 vertices[65536*2];
-    int vert_count;
+    uint32_t vert_count;
     
     V3 vertexn[65536*2];
-    int vertexn_count;
+    uint32_t vertexn_count;
 
     Triangle polygons[65536];
-    int poly_count;
+    uint32_t poly_count;
     float min_y;
     float max_y;
 };
 
 struct RenderObj {
-    int index;
+    uint32_t vstart;
+    uint32_t vend;
+    uint32_t index_start;
+    uint32_t index_end;
     Mesh *mesh;
     V3 color;
 };
@@ -90,19 +93,19 @@ struct LightSource {
 };
 
 struct RendererState {
-    int vertex_count;
+    uint32_t vertex_count;
     V3 vertex_list[65536*100];
     V3 vertex_colors[65536*100];
 
-    int vertexn_count;
+    uint32_t vertexn_count;
     V3 vertexn_list[65536*100];
 
-    int polygon_count;
+    uint32_t polygon_count;
     Triangle polygons[65536*50];
 
-    int draw_count;
+    uint32_t draw_count;
     Triangle polygons_to_draw[65536*30];
 
-    int light_sources_count;
+    uint32_t light_sources_count;
     LightSource light_sources[255];
 };

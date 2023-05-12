@@ -149,7 +149,7 @@ static V3Screen renderer_world_vertex_to_screen(V3 world_pos,
 
 static V3 compute_light_intensity(LightSource source, V3 vertex, V3 normal) {
     V3 dl = source.position-vertex; 
-    float intensity = (v3_dot(v3_norm(dl), normal));
+    float intensity = v3_dot(v3_norm(dl), normal);
     if (intensity > 0) {
         return intensity*source.color;
 
@@ -157,10 +157,10 @@ static V3 compute_light_intensity(LightSource source, V3 vertex, V3 normal) {
     return source.color = {};
 }
 
-static bool vertex_is_light_source(int vertex_index, LightSource *source, int count) {
+static bool vertex_is_light_source(uint32_t vertex_index, LightSource *source, int count) {
     for (int i = 0; i < count; ++i) {
-        if (vertex_index >= source->obj->index && 
-                vertex_index <= source->obj->index+source->obj->mesh->vert_count) {
+        if (vertex_index >= source->obj->vstart && 
+                vertex_index <= source->obj->vend) {
             return true;
         }
         ++source;
@@ -168,13 +168,34 @@ static bool vertex_is_light_source(int vertex_index, LightSource *source, int co
     return false;
 }
 
+static void truncate_light(V3 *light) {
+    (light->x > 1) ? light->x = 1 : light->x;
+    (light->y > 1) ? light->y = 1 : light->y;
+    (light->z > 1) ? light->z = 1 : light->z;
+}
+#if 0
+static V3 light_vertex(V3 vertex, V3 normal, LightSource *sources, uint32_t count) {
+        if(!vertex_is_light_source(vertex, 
+                                   sources, 
+                                   count)) {
+            
+            for (uint32_t light = 0; light < count; ++light) {
+                LightSource source = sources[light];
+                vertex += compute_light_intensity(source, vertex, normal);
+            }
+            truncate_light(&vertex);
+
+        }
+}
+#endif
+
 static void renderer_transform_light_and_cull(RendererState *render_state,
                                               GameCamera *camera, 
                                               int buffer_width, 
                                               int buffer_height) {
 
     render_state->draw_count = 0;
-    for (int triangle = 0; triangle < render_state->polygon_count; ++triangle) {
+    for (uint32_t triangle = 0; triangle < render_state->polygon_count; ++triangle) {
         Triangle *current = &render_state->polygons[triangle];
         Triangle out = *current;
         V3 vertex1 = render_state->vertex_list[current->v1];
@@ -187,7 +208,7 @@ static void renderer_transform_light_and_cull(RendererState *render_state,
         V3 vn2 = render_state->vertexn_list[current->vn2];
         V3 vn3 = render_state->vertexn_list[current->vn3];
 
-#if DEBUG_SHADING == 0
+#if SHADING == 1
         //current->v1_color = v3(1.0f,1.0f,1.0f);
         //current->v2_color = v3(1.0f,1.0f,1.0f);
         //current->v3_color = v3(1.0f,1.0f,1.0f);
@@ -198,11 +219,11 @@ static void renderer_transform_light_and_cull(RendererState *render_state,
         if (!vertex_is_light_source(current->v1, 
                                     render_state->light_sources, 
                                     render_state->light_sources_count)) {
-            for (int light = 0; light < render_state->light_sources_count; ++light) {
+            for (uint32_t light = 0; light < render_state->light_sources_count; ++light) {
                 LightSource *source = &render_state->light_sources[light];
                 v1_light += compute_light_intensity(*source, vertex1, vn1);
             }
-            v1_light = v1_light/(float)render_state->light_sources_count;
+            truncate_light(&v1_light);
         }
 
         else {
@@ -212,27 +233,28 @@ static void renderer_transform_light_and_cull(RendererState *render_state,
         if (!vertex_is_light_source(current->v2, 
                                     render_state->light_sources, 
                                     render_state->light_sources_count)) {
-            
-            for (int light = 0; light < render_state->light_sources_count; ++light) {
+
+            for (uint32_t light = 0; light < render_state->light_sources_count; ++light) {
                 LightSource *source = &render_state->light_sources[light];
                 v2_light += compute_light_intensity(*source, vertex2, vn2);
             }
-            v2_light = v2_light/(float)render_state->light_sources_count;
-
+            truncate_light(&v2_light);
         }
 
         else {
             v2_light = v3(1,1,1);
         }
+
+
         if (!vertex_is_light_source(current->v3, 
                                     render_state->light_sources, 
                                     render_state->light_sources_count)) {
 
-            for (int light = 0; light < render_state->light_sources_count; ++light) {
+            for (uint32_t light = 0; light < render_state->light_sources_count; ++light) {
                 LightSource *source = &render_state->light_sources[light];
                 v3_light += compute_light_intensity(*source, vertex3, vn3);
             }
-            v3_light = v3_light/(float)render_state->light_sources_count;
+            truncate_light(&v3_light);
         }
 
         else {
@@ -243,19 +265,15 @@ static void renderer_transform_light_and_cull(RendererState *render_state,
         *v2_color = v3_pariwise_mul(v2_light,*v2_color);
         *v3_color = v3_pariwise_mul(v3_light,*v3_color);
 
-#else 
-        current->v1_color = v3(1,0,0);
-        current->v2_color = v3(0,1,0);
-        current->v3_color = v3(0,0,1);
 #endif // !DEBUG_SHADING
     }
 
-    for (int vertex = 0; vertex < render_state->vertex_count; ++vertex) {
+    for (uint32_t vertex = 0; vertex < render_state->vertex_count; ++vertex) {
         render_state->vertex_list[vertex] = 
             renderer_world_vertex_to_view(render_state->vertex_list[vertex], camera);
     }
 
-    for (int triangle = 0; triangle < render_state->polygon_count; ++triangle) {
+    for (uint32_t triangle = 0; triangle < render_state->polygon_count; ++triangle) {
         Triangle current = render_state->polygons[triangle];
 
         if (v3_dot(render_state->vertex_list[current.v1], 
@@ -269,7 +287,7 @@ static void renderer_transform_light_and_cull(RendererState *render_state,
 
 
     float aspect_ratio = ((float)buffer_width/(float)buffer_height);
-    for (int vertex = 0; vertex < render_state->vertex_count; ++vertex) {
+    for (uint32_t vertex = 0; vertex < render_state->vertex_count; ++vertex) {
         V3 relative_pos = render_state->vertex_list[vertex];
 
         if (renderer_v3_should_clip(relative_pos, camera, aspect_ratio)) {
@@ -782,8 +800,8 @@ static void renderer_draw_triangles_filled(OffscreenBuffer *buffer,
 
 static RenderObj create_render_obj(RendererState *render_state, Mesh *mesh, V3 color) {
     RenderObj result = {};
-    int vertex_start = render_state->vertex_count;
-    for (int vert = 0; vert < mesh->vert_count; ++vert) {
+    uint32_t vertex_start = render_state->vertex_count;
+    for (uint32_t vert = 0; vert < mesh->vert_count; ++vert) {
         render_state->vertex_list[render_state->vertex_count] = mesh->vertices[vert];
         render_state->vertex_colors[render_state->vertex_count] = color;
         ++render_state->vertex_count;
@@ -791,12 +809,13 @@ static RenderObj create_render_obj(RendererState *render_state, Mesh *mesh, V3 c
 
 
     int vertexnorm_start = render_state->vertexn_count;
-    for (int normal = 0; normal < mesh->vertexn_count; ++normal) {
+    for (uint32_t normal = 0; normal < mesh->vertexn_count; ++normal) {
         render_state->vertexn_list[render_state->vertexn_count++] =
             mesh->vertexn[normal];
     }
 
-    for (int polygon = 0; polygon < mesh->poly_count; ++polygon) {
+    int index_start = render_state->polygon_count;
+    for (uint32_t polygon = 0; polygon < mesh->poly_count; ++polygon) {
        render_state->polygons[render_state->polygon_count] = mesh->polygons[polygon];
         render_state->polygons[render_state->polygon_count].v1 += vertex_start;
         render_state->polygons[render_state->polygon_count].v2 += vertex_start;
@@ -808,7 +827,10 @@ static RenderObj create_render_obj(RendererState *render_state, Mesh *mesh, V3 c
     }
 
 
-    result.index = vertex_start;
+    result.vstart = vertex_start;
+    result.vend = vertex_start+mesh->vert_count;
+    result.index_start = index_start;
+    result.index_end = index_start+mesh->poly_count;
     result.mesh = mesh;
     result.color = color;
 
@@ -821,10 +843,32 @@ static void draw_render_obj(RendererState *render_state,
                             Quaternion rotation, 
                             V3 translation) {
 
-    for (int vertex = 0; vertex < obj->mesh->vert_count; ++vertex) {
-        render_state->vertex_list[obj->index+vertex] = 
+    for (uint32_t vertex = 0; vertex < obj->mesh->vert_count; ++vertex) {
+        render_state->vertex_list[obj->vstart+vertex] = 
             v3_rotate_q4(v3_pariwise_mul(scale,obj->mesh->vertices[vertex]), rotation) + translation;
 
-        render_state->vertex_colors[obj->index+vertex] = obj->color;
+        render_state->vertex_colors[obj->vstart+vertex] = obj->color;
     }
+}
+
+static void destroy_render_obj(RendererState *render_state,
+                               RenderObj *obj) {
+
+    // TODO: wack
+    for (uint32_t vertex = obj->vstart; vertex < obj->vend; ++vertex) {
+        render_state->vertex_list[vertex] = v3_zero();
+        render_state->vertex_colors[vertex] = v3_zero();
+    }
+
+    for (uint32_t index = obj->index_start; index < obj->index_end; ++index) {
+        render_state->polygons[index] = {};
+    }
+}
+                            
+
+static void make_light_source(RendererState *render_state, RenderObj *obj, V3 position, V3 color) {
+        render_state->light_sources[render_state->light_sources_count].position = position;
+        render_state->light_sources[render_state->light_sources_count].color = color;
+        render_state->light_sources[render_state->light_sources_count].obj = obj;
+        ++render_state->light_sources_count;
 }

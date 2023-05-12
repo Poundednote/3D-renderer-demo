@@ -16,9 +16,9 @@
 #define TIME_FOR_FRAME (1.0f / GAME_UPDATE_HZ)
 #define MAX_PARTICLES (1024*7)
 
-#define WORLD_WIDTH 10000
-#define WORLD_HEIGHT 10000
-#define WORLD_DEPTH 10000
+#define WORLD_WIDTH 50000
+#define WORLD_HEIGHT 50000
+#define WORLD_DEPTH 50000
 #define WORLD_LEFT (-WORLD_WIDTH/2.0f)
 #define WORLD_RIGHT (WORLD_WIDTH/2.0f)
 #define WORLD_BOTTOM (-WORLD_HEIGHT/2.0f)
@@ -43,7 +43,7 @@ struct Particle {
 };
 
 struct ParticleSystem {
-    int id[MAX_PARTICLES];
+    uint32_t id[MAX_PARTICLES];
     float mass[MAX_PARTICLES];
     float radius[MAX_PARTICLES];
     V3 pos[MAX_PARTICLES];
@@ -56,8 +56,8 @@ struct ParticleSystem {
 };
 
 struct Spring {
-    int p1index;
-    int p2index;
+    uint32_t p1_id;
+    uint32_t p2_id;
 
     float spring_const;
     float damping_const;
@@ -103,6 +103,11 @@ struct GameMemory {
     void *transient_storage;
 };
 
+struct WorldChunk {
+    int x;
+    int z;
+};
+
 struct GameState {
     float time;
 
@@ -115,7 +120,7 @@ struct GameState {
 
     GameCamera camera;
 
-    bool gravity;
+    WorldChunk current_chunk;
 
 #if SSE
     Vertex4Cube particle_vert[MAX_PARTICLES];
@@ -129,6 +134,7 @@ struct GameState {
     uint32_t frame_counter;
     float splat_time;
     bool is_splat;
+
 #endif
 };
 
