@@ -23,6 +23,6 @@ I am trying to implement a full 3d game engine in c++ from scratch, inspired par
 * [Single Instruction Multiple Data (SIMD)](https://en.wikipedia.org/wiki/Single_instruction,_multiple_data) - Performance and optimisation
 * [Modern x64 Archietures and the Cache](https://youtu.be/tk5P7mt2fAw) - It seems that in most cases ineffecient use of the cache is the cause of bad performance
 * [Data Oriented Design](https://youtu.be/rX0ItVEVjHc) - Good practises for making good use of CPU cache
-* [CPU Caches and Why You Care](https://youtu.be/WDIkqP4JbkE) - This talk a bit like the pervious outlines the importance of CPU cache
+* [CPU Caches and Why You Care](https://youtu.be/WDIkqP4JbkE) - This talk a bit like the previous outlines the importance of CPU cache
 
 I have also used wikipedia extensively and have found almost all the relevant wikipedia articles to be helpful
