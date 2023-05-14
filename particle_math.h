@@ -90,7 +90,10 @@ static inline float v3_mag(V3 a) {
 
 static inline V3 v3_norm(V3 a) {
     V3 result;
-    result = (v3_mag(a) > 0) ? a/v3_mag(a) : v3(0,0,0);
+    if (((a.x == 0) & (a.y == 0) & (a.z == 0))) {
+        return v3_zero();
+    }
+    result = a/v3_mag(a);
     return result;
 }
 
@@ -202,8 +205,10 @@ static V3 v3_rotate_on_axis(V3 axis, float theta, V3 vec) {
 
 static inline V3 v3_rotate_q4(V3 vec, Quaternion q) {
     Quaternion result;
-    q = q4_norm(q);
-
+    result.vector = q.scalar*vec + (v3_cross(q.vector, vec));
+    result.scalar = -v3_dot(q.vector, vec);
+    V3 conjugate_vec = -q.vector;
+    result.vector = result.scalar*conjugate_vec +  (v3_cross(result.vector, conjugate_vec));
     result = (q*vec*conj(q));
     return result.vector;
 }

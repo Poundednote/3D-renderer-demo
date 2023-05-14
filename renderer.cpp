@@ -209,12 +209,10 @@ static void renderer_transform_light_and_cull(RendererState *render_state,
         V3 vn3 = render_state->vertexn_list[current->vn3];
 
 #if SHADING == 1
-        //current->v1_color = v3(1.0f,1.0f,1.0f);
-        //current->v2_color = v3(1.0f,1.0f,1.0f);
-        //current->v3_color = v3(1.0f,1.0f,1.0f);
-        V3 v1_light = {};
-        V3 v2_light = {};
-        V3 v3_light = {};
+        // ambient light
+        V3 v1_light = {0.2f,0.2f,0.2f};
+            V3 v2_light = {0.2f,0.2f,0.2f};
+        V3 v3_light = {0.2f,0.2f,0.2f};
 
         if (!vertex_is_light_source(current->v1, 
                                     render_state->light_sources, 
@@ -837,38 +835,3 @@ static RenderObj create_render_obj(RendererState *render_state, Mesh *mesh, V3 c
     return result;
 }
 
-static void draw_render_obj(RendererState *render_state, 
-                            RenderObj *obj, 
-                            V3 scale, 
-                            Quaternion rotation, 
-                            V3 translation) {
-
-    for (uint32_t vertex = 0; vertex < obj->mesh->vert_count; ++vertex) {
-        render_state->vertex_list[obj->vstart+vertex] = 
-            v3_rotate_q4(v3_pariwise_mul(scale,obj->mesh->vertices[vertex]), rotation) + translation;
-
-        render_state->vertex_colors[obj->vstart+vertex] = obj->color;
-    }
-}
-
-static void destroy_render_obj(RendererState *render_state,
-                               RenderObj *obj) {
-
-    // TODO: wack
-    for (uint32_t vertex = obj->vstart; vertex < obj->vend; ++vertex) {
-        render_state->vertex_list[vertex] = v3_zero();
-        render_state->vertex_colors[vertex] = v3_zero();
-    }
-
-    for (uint32_t index = obj->index_start; index < obj->index_end; ++index) {
-        render_state->polygons[index] = {};
-    }
-}
-                            
-
-static void make_light_source(RendererState *render_state, RenderObj *obj, V3 position, V3 color) {
-        render_state->light_sources[render_state->light_sources_count].position = position;
-        render_state->light_sources[render_state->light_sources_count].color = color;
-        render_state->light_sources[render_state->light_sources_count].obj = obj;
-        ++render_state->light_sources_count;
-}

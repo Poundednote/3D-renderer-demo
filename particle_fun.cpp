@@ -22,6 +22,42 @@ static uint32_t parkmiller_rand(uint32_t *state) {
     return *state;
 }
 
+static void draw_render_obj(RendererState *render_state, 
+                            RenderObj *obj, 
+                            V3 scale, 
+                            Quaternion rotation, 
+                            V3 translation) {
+
+    for (uint32_t vertex = 0; vertex < obj->mesh->vert_count; ++vertex) {
+        render_state->vertex_list[obj->vstart+vertex] = 
+            v3_rotate_q4(v3_pariwise_mul(scale,obj->mesh->vertices[vertex]), rotation) + translation;
+
+        render_state->vertex_colors[obj->vstart+vertex] = obj->color;
+    }
+}
+
+static void destroy_render_obj(RendererState *render_state,
+                               RenderObj *obj) {
+
+    // TODO: wack
+    for (uint32_t vertex = obj->vstart; vertex < obj->vend; ++vertex) {
+        render_state->vertex_list[vertex] = v3_zero();
+        render_state->vertex_colors[vertex] = v3_zero();
+    }
+
+    for (uint32_t index = obj->index_start; index < obj->index_end; ++index) {
+        render_state->polygons[index] = {};
+    }
+}
+                            
+
+static void make_light_source(RendererState *render_state, RenderObj *obj, V3 position, V3 color) {
+        render_state->light_sources[render_state->light_sources_count].position = position;
+        render_state->light_sources[render_state->light_sources_count].color = color;
+        render_state->light_sources[render_state->light_sources_count].obj = obj;
+        ++render_state->light_sources_count;
+}
+
 inline static void string_inc_til_char(const char *string, char character, uint32_t *i) {
     for (;string[*i] != character; ++(*i)) {
         continue;
@@ -90,6 +126,7 @@ static void load_mesh_from_file_right(char *filename, Mesh *out) {
     }
     PlatformFreeFile(mesh_obj.file);
 }
+
 static V3 randomly_distribute_around_object(ParticleSystem *particles, int object_id, float close_scale, float far_scale, uint32_t *seed) {
     float x_offset = ((float)(parkmiller_rand(seed)%200)-100)/100.0f;
     float y_offset = ((float)(parkmiller_rand(seed)%200)-100)/100.0f;
@@ -119,7 +156,9 @@ static void generate_chunk(ParticleSystem *particles,
                            int number_of_particles, 
                            Mesh *mesh,
                            WorldChunk current_chunk,
-                           WorldChunk chunk) {
+                           WorldChunk chunk,
+                           bool lighting) {
+
 
     uint32_t seed = (chunk.x << 16)|(chunk.z);
     int light_source = particles->particle_count;
@@ -136,13 +175,16 @@ static void generate_chunk(ParticleSystem *particles,
     float sun_b = (float)(parkmiller_rand(&seed) % 100) / 100;
     particles->render_obj[particles->particle_count] = create_render_obj(render_state, mesh, v3(sun_r,sun_g,sun_b));
 
+
+    if (lighting) {
         make_light_source(render_state,
                 &particles->render_obj[light_source],
                 particles->pos[light_source],
                 v3(sun_r,sun_g,sun_b));
+    }
 
 
-    particles->particle_count++;
+    ++particles->particle_count;
 
     for (int i = 0; i < number_of_particles; i++) { 
         //assert(state->particle_count < arraysize(state->particles));
@@ -158,10 +200,10 @@ static void generate_chunk(ParticleSystem *particles,
 
         particles->radius[particles->particle_count] = particles->mass[particles->particle_count];
         particles->pos[particles->particle_count] = randomly_distribute_around_object(particles, 
-                                                                                      light_source, 
-                                                                                      300, 1000, &seed);
-                                                     
-                                                     
+                light_source, 
+                300, 1000, &seed);
+
+
 #if 1
         particles->vel[particles->particle_count].x = (float)(parkmiller_rand(&seed)%20)-10;
         particles->vel[particles->particle_count].y = (float)(parkmiller_rand(&seed)%20)-10;
@@ -184,8 +226,8 @@ static void generate_chunk(ParticleSystem *particles,
                 particles->radius[particles->particle_count] = particles->mass[particles->particle_count];
 
                 particles->pos[particles->particle_count] = randomly_distribute_around_object(particles, 
-                                                                                              parent_id, 
-                                                                                              10, 100, &seed);
+                        parent_id, 
+                        10, 100, &seed);
 
                 particles->vel[particles->particle_count] = particles->vel[parent_id];
                 particles->f_accumulator[particles->particle_count] = {};
@@ -255,14 +297,24 @@ inline static void spring_apply_force(GameState *state, Spring *spring) {
 }
 
 #if DEBUG_MODE
-static void generate_chunks(GameState *state,
-                            RendererState *render_state,
-                            Mesh *sphere_mesh) {
+static void generate_world(GameState *state,
+                           RendererState *render_state,
+                           Mesh *sphere_mesh) {
+
+    render_state->vertex_count = 0;
+    render_state->vertexn_count = 0;
+    render_state->polygon_count = 0;
+    render_state->light_sources_count = 0;
+    state->particles.particle_count = 0;
+    state->spring_count = 0;
+
     generate_chunk(&state->particles, 
-            render_state, 50, 
+            render_state, 10, 
             sphere_mesh, 
             state->current_chunk, 
-            state->current_chunk);
+            state->current_chunk,
+            true);
+
     //generate surrounding chunks
     WorldChunk left_chunk = {};
     left_chunk.x = state->current_chunk.x - 1;
@@ -290,52 +342,60 @@ static void generate_chunks(GameState *state,
     bottom_left.z = state->current_chunk.z-1;
 
     generate_chunk(&state->particles, 
-            render_state, 50, 
+            render_state, 10, 
             sphere_mesh, 
             state->current_chunk, 
-            left_chunk);
+            left_chunk,
+            true);
 
     generate_chunk(&state->particles, 
-            render_state, 50, 
+            render_state, 10, 
             sphere_mesh, 
             state->current_chunk, 
-            right_chunk);
+            right_chunk,
+            true);
 
     generate_chunk(&state->particles, 
-            render_state, 50,
+            render_state, 10,
             sphere_mesh,
             state->current_chunk,
-            top_chunk);
+            top_chunk,
+            true);
 
     generate_chunk(&state->particles, 
-            render_state, 50, 
+            render_state, 10, 
             sphere_mesh, 
             state->current_chunk, 
-            bottom_chunk);
+            bottom_chunk,
+            true);
 
     generate_chunk(&state->particles, 
-            render_state, 50,
+            render_state, 10,
             sphere_mesh,
             state->current_chunk,
-            top_right);
+            top_right,
+            false);
 
     generate_chunk(&state->particles, 
-            render_state, 50, 
+            render_state, 10, 
             sphere_mesh, 
             state->current_chunk, 
-            bottom_right);
+            bottom_right,
+            true);
 
     generate_chunk(&state->particles, 
-            render_state, 50,
+            render_state, 10,
             sphere_mesh,
             state->current_chunk,
-            top_left);
+            top_left,
+            true);
 
     generate_chunk(&state->particles, 
-            render_state, 50, 
+            render_state, 10, 
             sphere_mesh, 
             state->current_chunk, 
-            bottom_left);
+            bottom_left,
+            true);
 
 }
 #endif
@@ -361,7 +421,7 @@ void game_update_and_render(GameMemory *memory,
         gravity.y = -9.81f; 
 #if DEBUG_MODE
         state->current_chunk = {};
-        generate_chunks(state, render_state, sphere_mesh);
+        generate_world(state, render_state, sphere_mesh);
 
         create_side_by_side_particles(&state->particles, render_state, 10, v3(0,10,0), v3(0,0,0), sphere_mesh);
         create_side_by_side_particles(&state->particles, render_state, 10, v3(10,0,0), v3(0,0,0), sphere_mesh);
@@ -392,7 +452,7 @@ void game_update_and_render(GameMemory *memory,
         state->camera.pos.x = 0;
         state->camera.pos.y = 0;
         state->camera.pos.z = 0;
-        state->camera.zfar = 1000000; 
+        state->camera.zfar = 100000; 
         state->camera.znear = 0.01f; 
         state->camera.fov = PI/3.0f;
         state->move_speed = 300.0f;
@@ -480,49 +540,25 @@ void game_update_and_render(GameMemory *memory,
         if (state->camera.pos.z > WORLD_FORWARD) {
             state->camera.pos.z = WORLD_BACK;
             state->current_chunk = {state->current_chunk.x, state->current_chunk.z+1};
-            render_state->vertex_count = 0;
-            render_state->vertexn_count = 0;
-            render_state->polygon_count = 0;
-            render_state->light_sources_count = 0;
-            state->particles.particle_count = 0;
-            state->spring_count = 0;
-            generate_chunks(state, render_state, sphere_mesh);
+            generate_world(state, render_state, sphere_mesh);
         }
 
         if (state->camera.pos.z < WORLD_BACK) {
             state->camera.pos.z = WORLD_FORWARD;
             state->current_chunk = {state->current_chunk.x, state->current_chunk.z-1};
-            render_state->vertex_count = 0;
-            render_state->vertexn_count = 0;
-            render_state->polygon_count = 0;
-            render_state->light_sources_count = 0;
-            state->particles.particle_count = 0;
-            state->spring_count = 0;
-            generate_chunks(state, render_state, sphere_mesh);
+            generate_world(state, render_state, sphere_mesh);
         }
 
-        if (state->camera.pos.z > WORLD_RIGHT) {
-            state->camera.pos.z = WORLD_LEFT;
-            state->current_chunk = {state->current_chunk.x, state->current_chunk.z+1};
-            render_state->vertex_count = 0;
-            render_state->vertexn_count = 0;
-            render_state->polygon_count = 0;
-            render_state->light_sources_count = 0;
-            state->particles.particle_count = 0;
-            state->spring_count = 0;
-            generate_chunks(state, render_state, sphere_mesh);
+        if (state->camera.pos.x > WORLD_RIGHT) {
+            state->camera.pos.x = WORLD_LEFT;
+            state->current_chunk = {state->current_chunk.x+1, state->current_chunk.z};
+            generate_world(state, render_state, sphere_mesh);
         }
 
-        if (state->camera.pos.z < WORLD_LEFT) {
-            state->camera.pos.z = WORLD_RIGHT;
-            state->current_chunk = {state->current_chunk.x, state->current_chunk.z-1};
-            render_state->vertex_count = 0;
-            render_state->vertexn_count = 0;
-            render_state->polygon_count = 0;
-            render_state->light_sources_count = 0;
-            state->particles.particle_count = 0;
-            state->spring_count = 0;
-            generate_chunks(state, render_state, sphere_mesh);
+        if (state->camera.pos.x < WORLD_LEFT) {
+            state->camera.pos.x = WORLD_RIGHT;
+            state->current_chunk = {state->current_chunk.x-1, state->current_chunk.z};
+            generate_world(state, render_state, sphere_mesh);
         }
 
 
