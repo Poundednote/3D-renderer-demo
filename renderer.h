@@ -21,9 +21,6 @@ struct OffscreenBuffer {
 
 struct GameCamera {
     V3 pos;
-    float width;
-    float height;
-    
     float znear;
     float zfar;
     float fov;

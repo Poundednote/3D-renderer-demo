@@ -104,8 +104,8 @@ struct GameMemory {
 };
 
 struct WorldChunk {
-    int x;
-    int z;
+    uint32_t x;
+    uint32_t z;
 };
 
 struct GameState {
@@ -121,6 +121,7 @@ struct GameState {
     GameCamera camera;
 
     WorldChunk current_chunk;
+    uint32_t chunk_id;
 
 #if SSE
     Vertex4Cube particle_vert[MAX_PARTICLES];

@@ -157,10 +157,10 @@ static void generate_chunk(ParticleSystem *particles,
                            Mesh *mesh,
                            WorldChunk current_chunk,
                            WorldChunk chunk,
-                           bool lighting) {
+                           bool lighting,
+                           uint32_t game_seed) {
 
-
-    uint32_t seed = (chunk.x << 16)|(chunk.z);
+    uint32_t seed = ((chunk.x << 16)|(chunk.z));
     int light_source = particles->particle_count;
     particles->id[particles->particle_count] = light_source;
     particles->mass[particles->particle_count] = (((float)(parkmiller_rand(&seed)%100)/100)*(300-100))+100;
@@ -202,7 +202,6 @@ static void generate_chunk(ParticleSystem *particles,
         particles->pos[particles->particle_count] = randomly_distribute_around_object(particles, 
                 light_source, 
                 300, 1000, &seed);
-
 
 #if 1
         particles->vel[particles->particle_count].x = (float)(parkmiller_rand(&seed)%20)-10;
@@ -307,97 +306,24 @@ static void generate_world(GameState *state,
     render_state->light_sources_count = 0;
     state->particles.particle_count = 0;
     state->spring_count = 0;
+    int offset_z = 2;
+    int offset_x = 2;
 
-    generate_chunk(&state->particles, 
-            render_state, 10, 
-            sphere_mesh, 
-            state->current_chunk, 
-            state->current_chunk,
-            true);
-
-    //generate surrounding chunks
-    WorldChunk left_chunk = {};
-    left_chunk.x = state->current_chunk.x - 1;
-    left_chunk.z = state->current_chunk.z;
-    WorldChunk right_chunk = {};
-    right_chunk.x = state->current_chunk.x + 1;
-    right_chunk.z = state->current_chunk.z;
-    WorldChunk top_chunk = {};
-    top_chunk.x = state->current_chunk.x;
-    top_chunk.z = state->current_chunk.z + 1;
-    WorldChunk bottom_chunk = {};
-    bottom_chunk.x = state->current_chunk.x;
-    bottom_chunk.z = state->current_chunk.z - 1;
-    WorldChunk top_right = {};
-    top_right.x = state->current_chunk.x+1;
-    top_right.z = state->current_chunk.z + 1;
-    WorldChunk bottom_right = {};
-    bottom_right.x = state->current_chunk.x+1;
-    bottom_right.z = state->current_chunk.z-1;
-    WorldChunk top_left = {};
-    top_left.x = state->current_chunk.x-1;
-    top_left.z = state->current_chunk.z+1;
-    WorldChunk bottom_left = {};
-    bottom_left.x = state->current_chunk.x-1;
-    bottom_left.z = state->current_chunk.z-1;
-
-    generate_chunk(&state->particles, 
-            render_state, 10, 
-            sphere_mesh, 
-            state->current_chunk, 
-            left_chunk,
-            true);
-
-    generate_chunk(&state->particles, 
-            render_state, 10, 
-            sphere_mesh, 
-            state->current_chunk, 
-            right_chunk,
-            true);
-
-    generate_chunk(&state->particles, 
-            render_state, 10,
-            sphere_mesh,
-            state->current_chunk,
-            top_chunk,
-            true);
-
-    generate_chunk(&state->particles, 
-            render_state, 10, 
-            sphere_mesh, 
-            state->current_chunk, 
-            bottom_chunk,
-            true);
-
-    generate_chunk(&state->particles, 
-            render_state, 10,
-            sphere_mesh,
-            state->current_chunk,
-            top_right,
-            false);
-
-    generate_chunk(&state->particles, 
-            render_state, 10, 
-            sphere_mesh, 
-            state->current_chunk, 
-            bottom_right,
-            true);
-
-    generate_chunk(&state->particles, 
-            render_state, 10,
-            sphere_mesh,
-            state->current_chunk,
-            top_left,
-            true);
-
-    generate_chunk(&state->particles, 
-            render_state, 10, 
-            sphere_mesh, 
-            state->current_chunk, 
-            bottom_left,
-            true);
-
-}
+    for (int z = -offset_z; z <= offset_z; ++z) {
+        for (int x = -offset_x; x <= offset_x; ++x) {
+            WorldChunk chunk = {};
+            chunk.x = state->current_chunk.x + x;
+            chunk.z = state->current_chunk.z + z;
+            generate_chunk(&state->particles, 
+                    render_state, 10, 
+                    sphere_mesh, 
+                    state->current_chunk, 
+                    chunk,
+                    true,
+                    state->chunk_id++);
+        }
+    }
+} 
 #endif
                                         
 
@@ -414,13 +340,13 @@ void game_update_and_render(GameMemory *memory,
     Mesh *spring_mesh = &assets->meshes[1];
     if (!memory->is_initialised) {
         render_state->polygon_count = 0; 
-        
-       load_mesh_from_file_right("sphere.obj", sphere_mesh);
-       load_mesh_from_file_right("spring.obj", spring_mesh);
+        load_mesh_from_file_right("sphere.obj", sphere_mesh);
+        load_mesh_from_file_right("spring.obj", spring_mesh);
         //set GRAVITY
         gravity.y = -9.81f; 
 #if DEBUG_MODE
-        state->current_chunk = {};
+        state->current_chunk = {1000, 1000};
+        state->chunk_id += 1;
         generate_world(state, render_state, sphere_mesh);
 
         create_side_by_side_particles(&state->particles, render_state, 10, v3(0,10,0), v3(0,0,0), sphere_mesh);
@@ -447,8 +373,6 @@ void game_update_and_render(GameMemory *memory,
         
         spring->render_obj = create_render_obj(render_state, spring_mesh, v3(1,0,0));
 
-        state->camera.width = 300;
-        state->camera.height = 300;
         state->camera.pos.x = 0;
         state->camera.pos.y = 0;
         state->camera.pos.z = 0;
@@ -509,6 +433,16 @@ void game_update_and_render(GameMemory *memory,
         if (input->camup) {
             state->camera.theta_x -= PI/100.0f;
         }
+        
+        if (input->camright) {
+            state->camera.theta_y += PI/100.0f;
+
+        }
+
+        if (input->camleft) {
+            state->camera.theta_y -= PI/100.0f;
+        }
+
 
         if (input->left) {
             move -= v3_rotate_on_axis(v3(0,1,0), state->camera.theta_y, v3(1,0,0));
