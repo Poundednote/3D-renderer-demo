@@ -22,6 +22,46 @@ static uint32_t parkmiller_rand(uint32_t *state) {
     return *state;
 }
 
+static RenderObj create_render_obj(RendererState *render_state, Mesh *mesh, V3 color) {
+    RenderObj result = {};
+    uint32_t vertex_start = render_state->vertex_count;
+    for (uint32_t vert = 0; vert < mesh->vert_count; ++vert) {
+        render_state->vertex_list[render_state->vertex_count] = mesh->vertices[vert];
+        render_state->vertex_colors[render_state->vertex_count] = color;
+        ++render_state->vertex_count;
+    }
+
+
+    int vertexnorm_start = render_state->vertexn_count;
+    for (uint32_t normal = 0; normal < mesh->vertexn_count; ++normal) {
+        render_state->vertexn_list[render_state->vertexn_count++] =
+            mesh->vertexn[normal];
+    }
+
+    int index_start = render_state->polygon_count;
+    for (uint32_t polygon = 0; polygon < mesh->poly_count; ++polygon) {
+       render_state->polygons[render_state->polygon_count] = mesh->polygons[polygon];
+        render_state->polygons[render_state->polygon_count].v1 += vertex_start;
+        render_state->polygons[render_state->polygon_count].v2 += vertex_start;
+        render_state->polygons[render_state->polygon_count].v3 += vertex_start;
+        render_state->polygons[render_state->polygon_count].vn1 += vertexnorm_start;
+        render_state->polygons[render_state->polygon_count].vn2 += vertexnorm_start;
+        render_state->polygons[render_state->polygon_count].vn3 += vertexnorm_start;
+        render_state->polygon_count++;
+    }
+
+
+    result.vstart = vertex_start;
+    result.vend = vertex_start+mesh->vert_count;
+    result.index_start = index_start;
+    result.index_end = index_start+mesh->poly_count;
+    result.mesh = mesh;
+    result.color = color;
+
+    return result;
+}
+
+
 static void draw_render_obj(RendererState *render_state, 
                             RenderObj *obj, 
                             V3 scale, 
@@ -173,14 +213,14 @@ static void generate_chunk(ParticleSystem *particles,
     float sun_r = (float)(parkmiller_rand(&seed) % 100) / 100;
     float sun_g = (float)(parkmiller_rand(&seed) % 100) / 100;
     float sun_b = (float)(parkmiller_rand(&seed) % 100) / 100;
-    particles->render_obj[particles->particle_count] = create_render_obj(render_state, mesh, v3(sun_r,sun_g,sun_b));
+    particles->render_obj[particles->particle_count] = create_render_obj(render_state, mesh, 100*v3(1,1,1));
 
 
     if (lighting) {
         make_light_source(render_state,
                 &particles->render_obj[light_source],
                 particles->pos[light_source],
-                v3(sun_r,sun_g,sun_b));
+                10*v3(sun_r,sun_g,sun_b));
     }
 
 
@@ -306,8 +346,8 @@ static void generate_world(GameState *state,
     render_state->light_sources_count = 0;
     state->particles.particle_count = 0;
     state->spring_count = 0;
-    int offset_z = 2;
-    int offset_x = 2;
+    int offset_z = state->render_distance;
+    int offset_x = state->render_distance;
 
     for (int z = -offset_z; z <= offset_z; ++z) {
         for (int x = -offset_x; x <= offset_x; ++x) {
@@ -330,6 +370,7 @@ static void generate_world(GameState *state,
 void game_update_and_render(GameMemory *memory, 
                             OffscreenBuffer *buffer, 
                             OffscreenBuffer *zbuffer,
+                            OffscreenBuffer *postfx_buffer,
                             GameInput *input) {
 
 
@@ -347,7 +388,15 @@ void game_update_and_render(GameMemory *memory,
 #if DEBUG_MODE
         state->current_chunk = {1000, 1000};
         state->chunk_id += 1;
-        generate_world(state, render_state, sphere_mesh);
+        state->render_distance = 1;
+        WorldChunk chunk = {state->current_chunk.x,state->current_chunk.z+1};
+        generate_chunk(&state->particles, 
+                render_state, 10, 
+                sphere_mesh, 
+                state->current_chunk, 
+                chunk,
+                true,
+                state->chunk_id++);
 
         create_side_by_side_particles(&state->particles, render_state, 10, v3(0,10,0), v3(0,0,0), sphere_mesh);
         create_side_by_side_particles(&state->particles, render_state, 10, v3(10,0,0), v3(0,0,0), sphere_mesh);
@@ -390,7 +439,7 @@ void game_update_and_render(GameMemory *memory,
     }
 #endif
 
-    renderer_draw_background(buffer, 0xFF070707); 
+    renderer_draw_background(buffer, 0x0); 
 
     //clear z buffer every frame
     uint32_t zbuffer_size = zbuffer->width * zbuffer->height;

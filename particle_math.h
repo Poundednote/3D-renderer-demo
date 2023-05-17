@@ -118,6 +118,15 @@ static inline V3 v3_pariwise_mul(V3 a, V3 b) {
     return result;
 }
 
+inline V3 v3_pariwise_div(V3 a, V3 b) {
+    V3 result;
+    result.x = a.x/b.x;
+    result.y = a.y/b.y;
+    result.z = a.z/b.z;
+
+    return result;
+}
+
 
 struct Quaternion {
     float scalar; 

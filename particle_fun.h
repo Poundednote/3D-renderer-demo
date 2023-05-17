@@ -122,6 +122,7 @@ struct GameState {
 
     WorldChunk current_chunk;
     uint32_t chunk_id;
+    int render_distance;
 
 #if SSE
     Vertex4Cube particle_vert[MAX_PARTICLES];

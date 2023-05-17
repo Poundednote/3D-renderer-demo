@@ -149,7 +149,7 @@ static V3Screen renderer_world_vertex_to_screen(V3 world_pos,
 
 static V3 compute_light_intensity(LightSource source, V3 vertex, V3 normal) {
     V3 dl = source.position-vertex; 
-    float intensity = v3_dot(v3_norm(dl), normal);
+    float intensity = (1/v3_mag(dl)*v3_mag(dl))*v3_dot(v3_norm(dl), normal);
     if (intensity > 0) {
         return intensity*source.color;
 
@@ -168,26 +168,10 @@ static bool vertex_is_light_source(uint32_t vertex_index, LightSource *source, i
     return false;
 }
 
-static void truncate_light(V3 *light) {
-    (light->x > 1) ? light->x = 1 : light->x;
-    (light->y > 1) ? light->y = 1 : light->y;
-    (light->z > 1) ? light->z = 1 : light->z;
+static void tone_map_light(V3 *light) {
+    V3 ratio = v3_pariwise_div(*light, v3_pariwise_mul(v3(100,100,100), v3(100,100,100)));
+    *light = v3_pariwise_div(*light, (v3(1.0f,1.0f,1.0f)+(*light)));
 }
-#if 0
-static V3 light_vertex(V3 vertex, V3 normal, LightSource *sources, uint32_t count) {
-        if(!vertex_is_light_source(vertex, 
-                                   sources, 
-                                   count)) {
-            
-            for (uint32_t light = 0; light < count; ++light) {
-                LightSource source = sources[light];
-                vertex += compute_light_intensity(source, vertex, normal);
-            }
-            truncate_light(&vertex);
-
-        }
-}
-#endif
 
 static void renderer_transform_light_and_cull(RendererState *render_state,
                                               GameCamera *camera, 
@@ -209,9 +193,10 @@ static void renderer_transform_light_and_cull(RendererState *render_state,
         V3 vn3 = render_state->vertexn_list[current->vn3];
 
 #if SHADING == 1
+        V3 white_point = 100*v3(1,1,1);
         // ambient light
         V3 v1_light = {0.2f,0.2f,0.2f};
-            V3 v2_light = {0.2f,0.2f,0.2f};
+        V3 v2_light = {0.2f,0.2f,0.2f};
         V3 v3_light = {0.2f,0.2f,0.2f};
 
         if (!vertex_is_light_source(current->v1, 
@@ -221,11 +206,14 @@ static void renderer_transform_light_and_cull(RendererState *render_state,
                 LightSource *source = &render_state->light_sources[light];
                 v1_light += compute_light_intensity(*source, vertex1, vn1);
             }
-            truncate_light(&v1_light);
+            tone_map_light(&v1_light);
+            *v1_color = v3_pariwise_mul(v1_light,*v1_color);
+
         }
 
         else {
-            v1_light = v3(1,1,1); 
+            v1_light = 100*v3(1,1,1);
+            tone_map_light(&v1_light);
         }
 
         if (!vertex_is_light_source(current->v2, 
@@ -236,11 +224,13 @@ static void renderer_transform_light_and_cull(RendererState *render_state,
                 LightSource *source = &render_state->light_sources[light];
                 v2_light += compute_light_intensity(*source, vertex2, vn2);
             }
-            truncate_light(&v2_light);
+            tone_map_light(&v2_light);
+            *v2_color = v3_pariwise_mul(v2_light,*v2_color);
         }
 
         else {
-            v2_light = v3(1,1,1);
+            v2_light = 100*v3(1,1,1);
+            tone_map_light(&v2_light);
         }
 
 
@@ -252,18 +242,17 @@ static void renderer_transform_light_and_cull(RendererState *render_state,
                 LightSource *source = &render_state->light_sources[light];
                 v3_light += compute_light_intensity(*source, vertex3, vn3);
             }
-            truncate_light(&v3_light);
+
+            tone_map_light(&v3_light);
+            *v3_color = v3_pariwise_mul(v3_light,*v3_color);
         }
 
         else {
-            v3_light = v3(1,1,1);
+            v3_light = 100*v3(1,1,1);
+            tone_map_light(&v1_light);
         }
 
-        *v1_color = v3_pariwise_mul(v1_light,*v1_color);
-        *v2_color = v3_pariwise_mul(v2_light,*v2_color);
-        *v3_color = v3_pariwise_mul(v3_light,*v3_color);
-
-#endif // !DEBUG_SHADING
+#endif // SHADING
     }
 
     for (uint32_t vertex = 0; vertex < render_state->vertex_count; ++vertex) {
@@ -513,9 +502,9 @@ static void renderer_draw_line_zcull(OffscreenBuffer *buffer,
 }
 
 static void renderer_v2screen4_draw_triangles_wireframe(OffscreenBuffer *buffer,
-                                                      V3Screen4 *vertices,
-                                                      Triangle *triangles,
-                                                      int count) {
+                                                        V3Screen4 *vertices,
+                                                        Triangle *triangles,
+                                                        int count) {
 
     for (int i = 0; i < count; ++i) {
         int index1 = triangles->v1 / 4;
@@ -794,44 +783,6 @@ static void renderer_draw_triangles_filled(OffscreenBuffer *buffer,
             renderer_draw_flat_bottom_triangle(buffer, zbuffer, vert4, vert2, vert3, v4_color, v2_color, v3_color);
         }
     }
+    // TODO: post fx
+    //
 }
-
-static RenderObj create_render_obj(RendererState *render_state, Mesh *mesh, V3 color) {
-    RenderObj result = {};
-    uint32_t vertex_start = render_state->vertex_count;
-    for (uint32_t vert = 0; vert < mesh->vert_count; ++vert) {
-        render_state->vertex_list[render_state->vertex_count] = mesh->vertices[vert];
-        render_state->vertex_colors[render_state->vertex_count] = color;
-        ++render_state->vertex_count;
-    }
-
-
-    int vertexnorm_start = render_state->vertexn_count;
-    for (uint32_t normal = 0; normal < mesh->vertexn_count; ++normal) {
-        render_state->vertexn_list[render_state->vertexn_count++] =
-            mesh->vertexn[normal];
-    }
-
-    int index_start = render_state->polygon_count;
-    for (uint32_t polygon = 0; polygon < mesh->poly_count; ++polygon) {
-       render_state->polygons[render_state->polygon_count] = mesh->polygons[polygon];
-        render_state->polygons[render_state->polygon_count].v1 += vertex_start;
-        render_state->polygons[render_state->polygon_count].v2 += vertex_start;
-        render_state->polygons[render_state->polygon_count].v3 += vertex_start;
-        render_state->polygons[render_state->polygon_count].vn1 += vertexnorm_start;
-        render_state->polygons[render_state->polygon_count].vn2 += vertexnorm_start;
-        render_state->polygons[render_state->polygon_count].vn3 += vertexnorm_start;
-        render_state->polygon_count++;
-    }
-
-
-    result.vstart = vertex_start;
-    result.vend = vertex_start+mesh->vert_count;
-    result.index_start = index_start;
-    result.index_end = index_start+mesh->poly_count;
-    result.mesh = mesh;
-    result.color = color;
-
-    return result;
-}
-
