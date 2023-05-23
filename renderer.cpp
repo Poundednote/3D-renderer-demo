@@ -149,10 +149,9 @@ static V3Screen renderer_world_vertex_to_screen(V3 world_pos,
 
 static V3 compute_light_intensity(LightSource source, V3 vertex, V3 normal) {
     V3 dl = source.position-vertex; 
-    float intensity = (1/v3_mag(dl)*v3_mag(dl))*v3_dot(v3_norm(dl), normal);
+    float intensity = v3_dot(v3_norm(dl), normal);
     if (intensity > 0) {
         return intensity*source.color;
-
     }
     return source.color = {};
 }
@@ -168,9 +167,16 @@ static bool vertex_is_light_source(uint32_t vertex_index, LightSource *source, i
     return false;
 }
 
-static void tone_map_light(V3 *light) {
-    V3 ratio = v3_pariwise_div(*light, v3_pariwise_mul(v3(100,100,100), v3(100,100,100)));
-    *light = v3_pariwise_div(*light, (v3(1.0f,1.0f,1.0f)+(*light)));
+static inline float rgb_to_luminance(V3 rgb) {
+    return v3_dot(rgb, v3(0.2126f, 0.7152f, 0.0722f));
+}
+
+static V3 tone_map_light(V3 light, V3 white_point) {
+    float luminance = rgb_to_luminance(light);
+    float white_l = rgb_to_luminance(white_point);
+    float new_luminance = luminance / (1.0f + luminance);
+    V3 result = (new_luminance/luminance)*light;
+    return result;
 }
 
 static void renderer_transform_light_and_cull(RendererState *render_state,
@@ -193,11 +199,11 @@ static void renderer_transform_light_and_cull(RendererState *render_state,
         V3 vn3 = render_state->vertexn_list[current->vn3];
 
 #if SHADING == 1
-        V3 white_point = 100*v3(1,1,1);
+        V3 white_point = 10*v3(1,1,1);
         // ambient light
-        V3 v1_light = {0.2f,0.2f,0.2f};
-        V3 v2_light = {0.2f,0.2f,0.2f};
-        V3 v3_light = {0.2f,0.2f,0.2f};
+        V3 v1_light = {};
+        V3 v2_light = {};
+        V3 v3_light = {};
 
         if (!vertex_is_light_source(current->v1, 
                                     render_state->light_sources, 
@@ -206,14 +212,14 @@ static void renderer_transform_light_and_cull(RendererState *render_state,
                 LightSource *source = &render_state->light_sources[light];
                 v1_light += compute_light_intensity(*source, vertex1, vn1);
             }
-            tone_map_light(&v1_light);
-            *v1_color = v3_pariwise_mul(v1_light,*v1_color);
+            //v1_light = v1_light / (float)render_state->light_sources_count;
+            v1_light = tone_map_light(v1_light, white_point);
+            *v1_color = v3_pariwise_mul(*v1_color, v1_light);
 
         }
 
         else {
-            v1_light = 100*v3(1,1,1);
-            tone_map_light(&v1_light);
+            *v1_color = tone_map_light(*v1_color, white_point);
         }
 
         if (!vertex_is_light_source(current->v2, 
@@ -224,13 +230,13 @@ static void renderer_transform_light_and_cull(RendererState *render_state,
                 LightSource *source = &render_state->light_sources[light];
                 v2_light += compute_light_intensity(*source, vertex2, vn2);
             }
-            tone_map_light(&v2_light);
-            *v2_color = v3_pariwise_mul(v2_light,*v2_color);
+            //v2_light = v2_light / (float)render_state->light_sources_count;
+            v2_light = tone_map_light(v2_light, white_point);
+            *v2_color = v3_pariwise_mul(*v2_color, v2_light);
         }
 
         else {
-            v2_light = 100*v3(1,1,1);
-            tone_map_light(&v2_light);
+            *v2_color = tone_map_light(*v2_color, white_point);
         }
 
 
@@ -242,14 +248,13 @@ static void renderer_transform_light_and_cull(RendererState *render_state,
                 LightSource *source = &render_state->light_sources[light];
                 v3_light += compute_light_intensity(*source, vertex3, vn3);
             }
-
-            tone_map_light(&v3_light);
+            //v3_light = v3_light / (float)render_state->light_sources_count;
+            v3_light = tone_map_light(v3_light, white_point);
             *v3_color = v3_pariwise_mul(v3_light,*v3_color);
         }
 
         else {
-            v3_light = 100*v3(1,1,1);
-            tone_map_light(&v1_light);
+            *v3_color = tone_map_light(*v3_color, white_point);
         }
 
 #endif // SHADING

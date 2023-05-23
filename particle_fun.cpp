@@ -213,7 +213,7 @@ static void generate_chunk(ParticleSystem *particles,
     float sun_r = (float)(parkmiller_rand(&seed) % 100) / 100;
     float sun_g = (float)(parkmiller_rand(&seed) % 100) / 100;
     float sun_b = (float)(parkmiller_rand(&seed) % 100) / 100;
-    particles->render_obj[particles->particle_count] = create_render_obj(render_state, mesh, 100*v3(1,1,1));
+    particles->render_obj[particles->particle_count] = create_render_obj(render_state, mesh, 200*v3(sun_r,sun_g,sun_b));
 
 
     if (lighting) {
@@ -439,7 +439,7 @@ void game_update_and_render(GameMemory *memory,
     }
 #endif
 
-    renderer_draw_background(buffer, 0x0); 
+    renderer_draw_background(buffer, 0xFFFF00FF); 
 
     //clear z buffer every frame
     uint32_t zbuffer_size = zbuffer->width * zbuffer->height;
