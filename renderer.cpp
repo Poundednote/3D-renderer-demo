@@ -174,8 +174,12 @@ static inline float rgb_to_luminance(V3 rgb) {
 static V3 tone_map_light(V3 light, V3 white_point) {
     float luminance = rgb_to_luminance(light);
     float white_l = rgb_to_luminance(white_point);
-    float new_luminance = luminance / (1.0f + luminance);
+    float numerator = luminance * (1.0f + (luminance/(white_l * white_l)));
+    float new_luminance = numerator / (1.0f + luminance);
     V3 result = (new_luminance/luminance)*light;
+    (result.x > 1) ? result.x = 1 : result.x;
+    (result.y > 1) ? result.y = 1 : result.y;
+    (result.z > 1) ? result.z = 1 : result.z;
     return result;
 }
 
@@ -183,7 +187,7 @@ static void renderer_transform_light_and_cull(RendererState *render_state,
                                               GameCamera *camera, 
                                               int buffer_width, 
                                               int buffer_height) {
-
+    V3 white_point = 100*v3(1,1,1);
     render_state->draw_count = 0;
     for (uint32_t triangle = 0; triangle < render_state->polygon_count; ++triangle) {
         Triangle *current = &render_state->polygons[triangle];
@@ -199,65 +203,31 @@ static void renderer_transform_light_and_cull(RendererState *render_state,
         V3 vn3 = render_state->vertexn_list[current->vn3];
 
 #if SHADING == 1
-        V3 white_point = 10*v3(1,1,1);
         // ambient light
         V3 v1_light = {};
         V3 v2_light = {};
         V3 v3_light = {};
 
-        if (!vertex_is_light_source(current->v1, 
-                                    render_state->light_sources, 
-                                    render_state->light_sources_count)) {
-            for (uint32_t light = 0; light < render_state->light_sources_count; ++light) {
-                LightSource *source = &render_state->light_sources[light];
-                v1_light += compute_light_intensity(*source, vertex1, vn1);
-            }
-            //v1_light = v1_light / (float)render_state->light_sources_count;
-            v1_light = tone_map_light(v1_light, white_point);
-            *v1_color = v3_pariwise_mul(*v1_color, v1_light);
-
+        for (uint32_t light = 0; light < render_state->light_sources_count; ++light) {
+            LightSource source = render_state->light_sources[light];
+            v1_light += compute_light_intensity(source, vertex1, vn1);
+            v2_light += compute_light_intensity(source, vertex2, vn2);
+            v3_light += compute_light_intensity(source, vertex3, vn3);
         }
 
-        else {
-            *v1_color = tone_map_light(*v1_color, white_point);
-        }
-
-        if (!vertex_is_light_source(current->v2, 
-                                    render_state->light_sources, 
-                                    render_state->light_sources_count)) {
-
-            for (uint32_t light = 0; light < render_state->light_sources_count; ++light) {
-                LightSource *source = &render_state->light_sources[light];
-                v2_light += compute_light_intensity(*source, vertex2, vn2);
-            }
-            //v2_light = v2_light / (float)render_state->light_sources_count;
-            v2_light = tone_map_light(v2_light, white_point);
-            *v2_color = v3_pariwise_mul(*v2_color, v2_light);
-        }
-
-        else {
-            *v2_color = tone_map_light(*v2_color, white_point);
-        }
-
-
-        if (!vertex_is_light_source(current->v3, 
-                                    render_state->light_sources, 
-                                    render_state->light_sources_count)) {
-
-            for (uint32_t light = 0; light < render_state->light_sources_count; ++light) {
-                LightSource *source = &render_state->light_sources[light];
-                v3_light += compute_light_intensity(*source, vertex3, vn3);
-            }
-            //v3_light = v3_light / (float)render_state->light_sources_count;
-            v3_light = tone_map_light(v3_light, white_point);
-            *v3_color = v3_pariwise_mul(v3_light,*v3_color);
-        }
-
-        else {
-            *v3_color = tone_map_light(*v3_color, white_point);
-        }
-
+        *v1_color = v3_pairwise_mul(*v1_color, v1_light/2.0f);
+        *v2_color = v3_pairwise_mul(*v2_color, v2_light/2.0f);
+        *v3_color = v3_pairwise_mul(*v3_color, v3_light/2.0f);
 #endif // SHADING
+    }
+
+    for (uint32_t i = 0; i < render_state->light_sources_count; ++i) {
+        LightSource light_source = render_state->light_sources[i]; 
+        for (uint32_t j = light_source.obj->vstart; j <= light_source.obj->vend; ++j) {
+            V3 vertex = render_state->vertex_list[j];
+            V3 *color = &render_state->vertex_colors[j];
+            *color = v3_pairwise_mul(white_point, light_source.color);
+        }
     }
 
     for (uint32_t vertex = 0; vertex < render_state->vertex_count; ++vertex) {
@@ -689,14 +659,15 @@ static void renderer_draw_triangles_filled(OffscreenBuffer *buffer,
                                            Triangle *triangles,
                                            int count) {
 
+    V3 white_point = 100*v3(1,1,1);
     for (int i = 0; i < count; ++i) {
         V3 vert1 = vertices[triangles[i].v1];
         V3 vert2 = vertices[triangles[i].v2];
         V3 vert3 = vertices[triangles[i].v3];
 
-        V3 v1_color = colors[triangles[i].v1];
-        V3 v2_color = colors[triangles[i].v2];
-        V3 v3_color = colors[triangles[i].v3];
+        V3 v1_color = tone_map_light(colors[triangles[i].v1], white_point);
+        V3 v2_color = tone_map_light(colors[triangles[i].v2], white_point);
+        V3 v3_color = tone_map_light(colors[triangles[i].v3], white_point);
 
         if (renderer_v3_clipped(vert1)) continue;
         if (renderer_v3_clipped(vert2)) continue;
@@ -788,6 +759,104 @@ static void renderer_draw_triangles_filled(OffscreenBuffer *buffer,
             renderer_draw_flat_bottom_triangle(buffer, zbuffer, vert4, vert2, vert3, v4_color, v2_color, v3_color);
         }
     }
-    // TODO: post fx
-    //
+
+
+    for (int y = 0; y < buffer->height; ++y) {
+        for(int x = 0; x < buffer->width; ++x) {
+            uint32_t *zpixel = (uint32_t *)zbuffer->memory+(y*buffer->width)+x;
+            uint32_t *bpixel = (uint32_t *)buffer->memory+y*buffer->width+x;
+            uint8_t bred = (uint8_t)((*bpixel & 0x00FF0000) >> 16);
+            uint8_t bgreen = (uint8_t)((*bpixel & 0x0000FF00) >> 8);
+            uint8_t bblue = (uint8_t)(*bpixel & 0x000000FF);
+            if (bred > 0x20 && bgreen > 0x20 && bblue > 0x20) {
+                *zpixel = *bpixel;
+            }
+
+            else {
+                *(zpixel) = 0;
+            }
+        }
+    }
+
+    for (int i = 0; i < 5; ++i) {
+        uint32_t *pixels = (uint32_t *)zbuffer->memory;
+        for (int y = 0; y < zbuffer->height; ++y) {
+            for (int x = 0; x < zbuffer->width; ++x) {
+                if (x < 1 || y < 1 || x + 1 == zbuffer->width || y + 1 == zbuffer->height) {
+                    continue;
+                }
+
+                int sumr = (((pixels[(y+1)*zbuffer->width+x-1]) & 0x00FF0000) >> 16) +
+                    (((pixels[(y+1)*zbuffer->width+x]) & 0x00FF0000) >> 16) +
+                    (((pixels[(y+1)*zbuffer->width+x+1]) & 0x00FF0000) >> 16) +
+                    (((pixels[(y)*zbuffer->width+x-1]) & 0x00FF0000) >> 16) +
+                    (((pixels[(y)*zbuffer->width+x]) & 0x00FF0000) >> 16) +
+                    (((pixels[(y)*zbuffer->width+x+1]) & 0x00FF0000) >> 16) +
+                    (((pixels[(y-1)*zbuffer->width+x-1]) & 0x00FF0000) >> 16) +
+                    (((pixels[(y-1)*zbuffer->width+x]) & 0x00FF0000) >> 16) +
+                    (((pixels[(y-1)*zbuffer->width+x+1]) & 0x00FF0000) >> 16);  
+
+                int sumg = (((pixels[(y+1)*zbuffer->width+x-1]) & 0x0000FF00) >> 8) +
+                    (((pixels[(y+1)*zbuffer->width+x]) & 0x0000FF00) >> 8) +
+                    (((pixels[(y+1)*zbuffer->width+x+1]) & 0x0000FF00) >> 8) +
+                    (((pixels[(y)*zbuffer->width+x-1]) & 0x0000FF00) >> 8) +
+                    (((pixels[(y)*zbuffer->width+x]) & 0x0000FF00) >> 8) +
+                    (((pixels[(y)*zbuffer->width+x+1]) & 0x0000FF00) >> 8) +
+                    (((pixels[(y-1)*zbuffer->width+x-1]) & 0x0000FF00) >> 8) +
+                    (((pixels[(y-1)*zbuffer->width+x]) & 0x0000FF00) >> 8) +
+                    (((pixels[(y-1)*zbuffer->width+x+1]) & 0x0000FF00) >> 8);  
+
+                int sumb = ((pixels[(y+1)*zbuffer->width+x-1]) & 0x000000FF) +
+                    ((pixels[(y+1)*zbuffer->width+x]) & 0x000000FF) +
+                    ((pixels[(y+1)*zbuffer->width+x+1]) & 0x000000FF) +
+                    ((pixels[(y)*zbuffer->width+x-1]) & 0x000000FF) +
+                    ((pixels[(y)*zbuffer->width+x]) & 0x000000FF) +
+                    ((pixels[(y)*zbuffer->width+x+1]) & 0x000000FF) +
+                    ((pixels[(y-1)*zbuffer->width+x-1]) & 0x000000FF) +
+                    ((pixels[(y-1)*zbuffer->width+x]) & 0x000000FF) +
+                    ((pixels[(y-1)*zbuffer->width+x+1]) & 0x000000FF);  
+
+
+                uint8_t red = (uint8_t)(sumr/9); 
+                uint8_t green = (uint8_t)(sumg/9); 
+                uint8_t blue = (uint8_t)(sumb/9); 
+                pixels[(y)*zbuffer->width+x] = red << 16 | green << 8 | blue;
+            }
+        }
+    }
+
+    for (int y = 0; y < buffer->height; ++y) {
+        for (int x = 0; x < buffer->width; ++x) {
+            uint32_t *zpixel = (uint32_t *)zbuffer->memory+y*buffer->width+x;
+            uint32_t *bpixel = (uint32_t *)buffer->memory+y*buffer->width+x;
+            uint8_t bred = (uint8_t)((*bpixel & 0x00FF0000) >> 16);
+            uint8_t bgreen = (uint8_t)((*bpixel & 0x0000FF00) >> 8);
+            uint8_t bblue = (uint8_t)(*bpixel & 0x000000FF);
+
+            uint8_t zred = (uint8_t)((*zpixel & 0x00FF0000) >> 16);
+            uint8_t zgreen = (uint8_t)((*zpixel & 0x0000FF00) >> 8);
+            uint8_t zblue = (uint8_t)(*zpixel & 0x000000FF);
+
+            bred + zred > 255 ? zred = bred : zred += bred;
+            bgreen + zgreen > 255 ? zgreen = bgreen : zgreen += bgreen;
+            bblue + zblue > 255 ? zblue = bblue : zblue += bblue;
+
+            *bpixel = (zred << 16) | (zgreen << 8) | zblue;
+        }
+    }
 }
+
+
+static void renderer_draw(RendererState *render_state, 
+                          GameCamera *camera, 
+                          OffscreenBuffer *buffer, 
+                          OffscreenBuffer *zbuffer) {
+
+    renderer_transform_light_and_cull(render_state, camera, buffer->width, buffer->height);
+    renderer_draw_triangles_filled(buffer, zbuffer, 
+                                   render_state->vertex_list, 
+                                   render_state->vertex_colors, 
+                                   render_state->polygons_to_draw, 
+                                   render_state->draw_count);
+}
+

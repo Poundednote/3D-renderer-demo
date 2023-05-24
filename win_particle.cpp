@@ -420,7 +420,7 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE prev_instance,
             }
         }
 
-        game_update_and_render(&game_memory, 
+            game_update_and_render(&game_memory, 
                                &game_buffer, 
                                &zbuffer,
                                &postfx_buffer,

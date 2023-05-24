@@ -90,9 +90,7 @@ static inline float v3_mag(V3 a) {
 
 static inline V3 v3_norm(V3 a) {
     V3 result;
-    if (((a.x == 0) & (a.y == 0) & (a.z == 0))) {
-        return v3_zero();
-    }
+    if (a.x == 0 && a.y == 0 && a.z == 0) return v3_zero();
     result = a/v3_mag(a);
     return result;
 }
@@ -110,7 +108,7 @@ static inline V3 v3_cross(V3 a, V3 b) {
     return result;
 }
 
-static inline V3 v3_pariwise_mul(V3 a, V3 b) {
+static inline V3 v3_pairwise_mul(V3 a, V3 b) {
     V3 result;
     result.x = a.x*b.x;
     result.y = a.y*b.y;

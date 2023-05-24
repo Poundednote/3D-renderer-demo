@@ -70,7 +70,7 @@ static void draw_render_obj(RendererState *render_state,
 
     for (uint32_t vertex = 0; vertex < obj->mesh->vert_count; ++vertex) {
         render_state->vertex_list[obj->vstart+vertex] = 
-            v3_rotate_q4(v3_pariwise_mul(scale,obj->mesh->vertices[vertex]), rotation) + translation;
+            v3_rotate_q4(v3_pairwise_mul(scale,obj->mesh->vertices[vertex]), rotation) + translation;
 
         render_state->vertex_colors[obj->vstart+vertex] = obj->color;
     }
@@ -213,14 +213,14 @@ static void generate_chunk(ParticleSystem *particles,
     float sun_r = (float)(parkmiller_rand(&seed) % 100) / 100;
     float sun_g = (float)(parkmiller_rand(&seed) % 100) / 100;
     float sun_b = (float)(parkmiller_rand(&seed) % 100) / 100;
-    particles->render_obj[particles->particle_count] = create_render_obj(render_state, mesh, 200*v3(sun_r,sun_g,sun_b));
+    particles->render_obj[particles->particle_count] = create_render_obj(render_state, mesh, v3(sun_r,sun_g,sun_b));
 
 
     if (lighting) {
         make_light_source(render_state,
                 &particles->render_obj[light_source],
                 particles->pos[light_source],
-                10*v3(sun_r,sun_g,sun_b));
+                    v3(sun_r,sun_g,sun_b));
     }
 
 
@@ -390,13 +390,7 @@ void game_update_and_render(GameMemory *memory,
         state->chunk_id += 1;
         state->render_distance = 1;
         WorldChunk chunk = {state->current_chunk.x,state->current_chunk.z+1};
-        generate_chunk(&state->particles, 
-                render_state, 10, 
-                sphere_mesh, 
-                state->current_chunk, 
-                chunk,
-                true,
-                state->chunk_id++);
+        generate_world(state, render_state, sphere_mesh);
 
         create_side_by_side_particles(&state->particles, render_state, 10, v3(0,10,0), v3(0,0,0), sphere_mesh);
         create_side_by_side_particles(&state->particles, render_state, 10, v3(10,0,0), v3(0,0,0), sphere_mesh);
@@ -439,7 +433,7 @@ void game_update_and_render(GameMemory *memory,
     }
 #endif
 
-    renderer_draw_background(buffer, 0xFFFF00FF); 
+    renderer_draw_background(buffer, BLACK); 
 
     //clear z buffer every frame
     uint32_t zbuffer_size = zbuffer->width * zbuffer->height;
@@ -727,18 +721,7 @@ void game_update_and_render(GameMemory *memory,
 
     }
 
-    renderer_transform_light_and_cull(render_state,
-                                      &state->camera, 
-                                      buffer->width, 
-                                      buffer->height);
-
-
-    renderer_draw_triangles_filled(buffer,
-                                   zbuffer,
-                                   render_state->vertex_list,
-                                   render_state->vertex_colors,
-                                   render_state->polygons_to_draw, 
-                                   render_state->draw_count);
+    renderer_draw(render_state, &state->camera, buffer, zbuffer);
 
 #if DEBUG_MODE
        state->frame_counter++;
