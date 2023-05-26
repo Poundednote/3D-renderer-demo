@@ -76,10 +76,11 @@ static void draw_render_obj(RendererState *render_state,
     }
 }
 
+/* TODO: ADD Dynamic Loading and deloading of chunks in 
+ * renderer instead of just overwriting the whole buffer evertime */
 static void destroy_render_obj(RendererState *render_state,
                                RenderObj *obj) {
 
-    // TODO: wack
     for (uint32_t vertex = obj->vstart; vertex < obj->vend; ++vertex) {
         render_state->vertex_list[vertex] = v3_zero();
         render_state->vertex_colors[vertex] = v3_zero();
@@ -104,6 +105,7 @@ inline static void string_inc_til_char(const char *string, char character, uint3
     }
 }
 
+// TODO Cleanup Messy Code
 static void load_mesh_from_file_right(char *filename, Mesh *out) {
     ReadFileResult mesh_obj = PlatformReadFile(filename);
     char *string = (char *)mesh_obj.file;
@@ -220,7 +222,7 @@ static void generate_chunk(ParticleSystem *particles,
         make_light_source(render_state,
                 &particles->render_obj[light_source],
                 particles->pos[light_source],
-                    v3(sun_r,sun_g,sun_b));
+                    2*v3(sun_r,sun_g,sun_b));
     }
 
 
@@ -379,6 +381,7 @@ void game_update_and_render(GameMemory *memory,
     Assets *assets = (Assets *)((char*)memory->transient_storage+sizeof(RendererState));
     Mesh *sphere_mesh = &assets->meshes[0];
     Mesh *spring_mesh = &assets->meshes[1];
+    
     if (!memory->is_initialised) {
         render_state->polygon_count = 0; 
         load_mesh_from_file_right("sphere.obj", sphere_mesh);
@@ -390,7 +393,7 @@ void game_update_and_render(GameMemory *memory,
         state->chunk_id += 1;
         state->render_distance = 1;
         WorldChunk chunk = {state->current_chunk.x,state->current_chunk.z+1};
-        generate_world(state, render_state, sphere_mesh);
+        generate_chunk(&state->particles, render_state, 10, sphere_mesh, state->current_chunk, chunk, true, state->chunk_id);
 
         create_side_by_side_particles(&state->particles, render_state, 10, v3(0,10,0), v3(0,0,0), sphere_mesh);
         create_side_by_side_particles(&state->particles, render_state, 10, v3(10,0,0), v3(0,0,0), sphere_mesh);
@@ -415,7 +418,6 @@ void game_update_and_render(GameMemory *memory,
         state->particles.render_obj[spring->p2_id] = create_render_obj(render_state, sphere_mesh, v3(1,1,1));
         
         spring->render_obj = create_render_obj(render_state, spring_mesh, v3(1,0,0));
-
         state->camera.pos.x = 0;
         state->camera.pos.y = 0;
         state->camera.pos.z = 0;
@@ -549,8 +551,6 @@ void game_update_and_render(GameMemory *memory,
         }
     }
 
-    int cube_count = 0;
-    int screen_count = 0;
     //draw particles
     for (int i = 0;i < state->particles.particle_count; i++) {
         draw_render_obj(render_state, 
@@ -558,6 +558,7 @@ void game_update_and_render(GameMemory *memory,
                           state->particles.mass[i]*v3(1,1,1), q4(1, v3(0,0,0)), 
                           state->particles.pos[i]);
     }
+
     //draw_springs
     for (int i = 0;i < state->spring_count; ++i) {
         draw_render_obj(render_state, 
@@ -577,124 +578,6 @@ void game_update_and_render(GameMemory *memory,
         // check for collisions and apply global forces
 
         for (int i = 0; i < state->particles.particle_count; ++i) {
-
-
-            float particle_x = state->particles.pos[i].x;
-            float particle_y = state->particles.pos[i].y;
-            float particle_z = state->particles.pos[i].z;
-
-            float particle_dx = state->particles.vel[i].x;
-            float particle_dy = state->particles.vel[i].y;
-            float particle_dz = state->particles.vel[i].z;
-
-            //update spatial mask
-            //
-#if 0
-            int left_grid_pos = (int)floorf((particles.pos.x - 
-                        particles.radius) / 
-                    (WORLD_WIDTH / 16.0f) + 8);
-
-            int right_grid_pos = (int)floorf((particle->pos.x + 
-                        particle->radius) / 
-                   (WORLD_WIDTH / 16.0f) + 8);
-
-            particle->spatial_mask = (1 << (left_grid_pos-1));
-            particle->spatial_mask = particle->spatial_mask | (1 << (right_grid_pos-1));
-
-            int top_grid_pos = (int)floorf(((particle->pos.y - particle->radius) / (WORLD_HEIGHT / 16.0f))+8);
-            int bottom_grid_pos = (int)floorf(((particle->pos.y + particle->radius) / (WORLD_HEIGHT / 16.0f))+8);
-            particle->spatial_mask = particle->spatial_mask | (1 << (16+top_grid_pos-1));
-            particle->spatial_mask = particle->spatial_mask | (1 << (16+bottom_grid_pos));
-#endif
-
-#if 0 
-            for (int j = 0; j< state->particle_count; ++j) {
-                Particle *potential_collider = &state->particles[j];
-                if (!potential_collider->active) {
-                    continue;
-                }
-                
-                // particles cant collide with themselves(particles->mass[parent_id]/2 )* x_offset
-                if (potential_collider == particle) {
-                    continue;
-                }
-                
-                // if not in the same grid then move onto the next
-                int particle_x_mask = (particle->spatial_mask & 0x0000FFFF); // low 16
-                int particle_y_mask = (particle->spatial_mask & 0xFFFF0000); // high 16
-                                                                            //
-                int collider_x_mask = (potential_collider->spatial_mask & 0x0000FFFF); // low 16
-                int collider_y_mask = (potential_collider->spatial_mask & 0xFFFF0000);// high 16
-                // if not colliding
-
-                if (!((particle_x_mask & collider_x_mask) && 
-                        (particle_y_mask & collider_y_mask))) {
-
-                    continue;
-                }
-
-                
-                if ((v3_mag(potential_collider->pos - particle->pos)) >= 
-                    (particle->radius + potential_collider->radius)) {
-                    continue;
-                }
-
-                if(particle == player) {
-                    if (player->mass > potential_collider->mass) {
-                        player->mass += 0.5f;    
-                        potential_collider->active = 0;
-                        continue;
-                    }
-                    
-                    else {
-                        player->mass *= 0.5f;
-                        if (player->mass < 0.1f) {
-                            player->mass = 0.1f;
-                        }
-                    }
-
-                }
-
-                V3 unit_normal = (potential_collider->pos - particle->pos) / 
-                                 (v3_mag(potential_collider->pos - particle->pos));
-                
-                V3 unit_tangent = {};
-                unit_tangent.x = -unit_normal.y;
-                unit_tangent.y = unit_normal.x;
-
-                float p1_dot = v3_dot((particle->vel-potential_collider->vel),
-                                           (particle->pos-potential_collider->pos));
-
-                float p2_dot = v3_dot((potential_collider->vel-particle->vel),
-                                           (potential_collider->pos-particle->pos));
-
-
-                
-                V3 p1_after_vel =  ((2.0f*potential_collider->mass)/
-                                  (particle->mass+potential_collider->mass)) *
-                                 (p1_dot/((v3_mag(particle->pos-potential_collider->pos)) *
-                                          (v3_mag(particle->pos-potential_collider->pos)))) *
-                                 (particle->pos - potential_collider->pos);
-
-                V3 p2_after_vel =  ((2.0f*particle->mass)/
-                                  (particle->mass+potential_collider->mass)) *
-                                 (p2_dot/((v3_mag(potential_collider->pos-particle->pos)) * 
-                                          (v3_mag(potential_collider->pos-particle->pos)))) *
-                                 (potential_collider->pos - particle->pos);
-
-                //rollback for colliding particles
-                while ((v3_mag(potential_collider->pos - particle->pos)) <
-                        (particle->radius + potential_collider->radius)) {
-
-                    particle->pos += -(timestep) * particle->vel;
-                    potential_collider->pos += -(timestep) * potential_collider->vel;
-                }
-
-                particle->vel = particle->vel - p1_after_vel;
-                potential_collider->vel = potential_collider->vel - p2_after_vel;
-            }
-#endif
-
             //zero forces
             state->particles.f_accumulator[i] = {}; 
             //state->particles.f_accumulator[i] += -(COEFFICIENT_OF_DRAG*state->particles.vel[i]); 
@@ -710,15 +593,11 @@ void game_update_and_render(GameMemory *memory,
 
         }
 
-        //update particles
-        //update particles;
         for (int i = 0; i < state->particles.particle_count; ++i) {
             state->particles.vel[i] += timestep * (state->particles.f_accumulator[i]/state->particles.mass[i]);
             state->particles.pos[i] += timestep * state->particles.vel[i];
         }
-
        state->time += timestep;
-
     }
 
     renderer_draw(render_state, &state->camera, buffer, zbuffer);

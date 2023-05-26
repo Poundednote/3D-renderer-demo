@@ -125,6 +125,17 @@ inline V3 v3_pariwise_div(V3 a, V3 b) {
     return result;
 }
 
+static void v3_swap(V3 *a, V3 *b) {
+    V3 temp = *a;
+    *a = *b;
+    *b = temp;
+}
+
+static inline V3 v3_lerp(float delta_x, float lerp_factor, V3 y0, V3 y1) {
+    return y0 + (lerp_factor)*((y1-y0)/(delta_x));
+}
+
+
 
 struct Quaternion {
     float scalar; 
@@ -220,6 +231,9 @@ static inline V3 v3_rotate_q4(V3 vec, Quaternion q) {
     return result.vector;
 }
 
+static inline float f_lerp(float delta_x, float lerp_factor, float y0, float y1) {
+    return y0 + (lerp_factor)*((y1-y0)/(delta_x));
+}
 
 #define PHYSICS_MATH_H
 #endif
