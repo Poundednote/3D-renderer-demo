@@ -186,9 +186,9 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE prev_instance,
     zbuffer.memory = VirtualAlloc(0, zbuffer_size, MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
 
     OffscreenBuffer postfx_buffer = {};
-    postfx_buffer.width = game_buffer.width;
-    postfx_buffer.height = game_buffer.height;
-    postfx_buffer.pitch = game_buffer.pitch;
+    postfx_buffer.width = game_buffer.width/5;
+    postfx_buffer.height = game_buffer.height/5;
+    postfx_buffer.pitch = postfx_buffer.width*postfx_buffer.bytes_per_pixel;
     postfx_buffer.bytes_per_pixel = game_buffer.bytes_per_pixel;
     
     uint32_t postfx_buffer_size = postfx_buffer.width*postfx_buffer.height*postfx_buffer.bytes_per_pixel;

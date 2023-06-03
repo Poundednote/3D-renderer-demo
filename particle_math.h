@@ -223,11 +223,10 @@ static V3 v3_rotate_on_axis(V3 axis, float theta, V3 vec) {
 
 static inline V3 v3_rotate_q4(V3 vec, Quaternion q) {
     Quaternion result;
-    result.vector = q.scalar*vec + (v3_cross(q.vector, vec));
-    result.scalar = -v3_dot(q.vector, vec);
+    result = q*vec;
     V3 conjugate_vec = -q.vector;
-    result.vector = result.scalar*conjugate_vec +  (v3_cross(result.vector, conjugate_vec));
-    result = (q*vec*conj(q));
+    //result.vector = result.scalar*conjugate_vec + (v3_cross(result.vector, conjugate_vec));
+    result.vector = result.scalar*conjugate_vec + q.scalar*result.vector + (v3_cross(result.vector, conjugate_vec));
     return result.vector;
 }
 
