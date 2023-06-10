@@ -18,6 +18,69 @@ static V3 renderer_world_vertex_to_view(V3 world_pos, GameCamera *camera) {
 
     return result;
 }
+static void vertex4_buffer_to_view(Vertex4 *buffer, 
+                                   GameCamera *camera, 
+                                   Quaternion rotation, 
+                                   uint32_t count) {
+
+        __m128 _qw = _mm_set1_ps(rotation.scalar); 
+        __m128 _qx = _mm_set1_ps(rotation.vector.x); 
+        __m128 _qy = _mm_set1_ps(rotation.vector.y); 
+        __m128 _qz = _mm_set1_ps(rotation.vector.z); 
+
+        __m128 _cam_x = _mm_set1_ps(camera->pos.x);
+        __m128 _cam_y = _mm_set1_ps(camera->pos.y);
+        __m128 _cam_z = _mm_set1_ps(camera->pos.z);
+
+
+    for (uint32_t i = 0; i < count; ++i) {
+        Vertex4 _vertex = buffer[i];
+        // translate position in world relative to camera
+        _vertex.x = _mm_sub_ps(_vertex.x, _cam_x);
+        _vertex.y = _mm_sub_ps(_vertex.y, _cam_y);
+        _vertex.z = _mm_sub_ps(_vertex.z, _cam_z);
+
+        //rotate world relative to comara
+        __m128 _cross_x = _mm_sub_ps(_mm_mul_ps(_qy, _vertex.z), _mm_mul_ps(_qz, _vertex.y));
+        __m128 _cross_y = _mm_sub_ps(_mm_mul_ps(_qz, _vertex.x), _mm_mul_ps(_qx, _vertex.z));
+        __m128 _cross_z = _mm_sub_ps(_mm_mul_ps(_qx, _vertex.y), _mm_mul_ps(_qy, _vertex.x));
+
+        __m128 _scaled_x = _mm_mul_ps(_vertex.x, _qw);
+        __m128 _scaled_y = _mm_mul_ps(_vertex.y, _qw);
+        __m128 _scaled_z = _mm_mul_ps(_vertex.z, _qw);
+
+
+        __m128 _dot = _mm_add_ps(_mm_add_ps(_mm_mul_ps(_vertex.x, _qx), _mm_mul_ps(_vertex.y, _qy)),
+                _mm_mul_ps(_vertex.z, _qz));
+
+        __m128 _tmp_w = _mm_mul_ps(_mm_set1_ps(-1.0f), _dot);
+        __m128 _tmp_x = _mm_add_ps(_cross_x, _scaled_x);
+        __m128 _tmp_y = _mm_add_ps(_cross_y, _scaled_y);
+        __m128 _tmp_z = _mm_add_ps(_cross_z, _scaled_z);
+
+
+        __m128 _conj_w = _qw;
+        __m128 _conj_x = _mm_mul_ps(_mm_set1_ps(-1.0f), _qx);
+        __m128 _conj_y = _mm_mul_ps(_mm_set1_ps(-1.0f), _qy);
+        __m128 _conj_z = _mm_mul_ps(_mm_set1_ps(-1.0f), _qz);
+
+        __m128 _tmp2_x = _mm_add_ps(_mm_mul_ps(_tmp_w, _conj_x), _mm_mul_ps(_conj_w, _tmp_x));
+        __m128 _tmp2_y = _mm_add_ps(_mm_mul_ps(_tmp_w, _conj_y), _mm_mul_ps(_conj_w, _tmp_y));
+        __m128 _tmp2_z = _mm_add_ps(_mm_mul_ps(_tmp_w, _conj_z), _mm_mul_ps(_conj_w, _tmp_z));
+
+        __m128 _tmp_cross_x = _mm_sub_ps(_mm_mul_ps(_tmp_y, _conj_z), _mm_mul_ps(_tmp_z, _conj_y));
+        __m128 _tmp_cross_y = _mm_sub_ps(_mm_mul_ps(_tmp_z, _conj_x), _mm_mul_ps(_tmp_x, _conj_z));
+        __m128 _tmp_cross_z = _mm_sub_ps(_mm_mul_ps(_tmp_x, _conj_y), _mm_mul_ps(_tmp_y, _conj_x));
+
+        __m128 _rotated_x = _mm_add_ps(_tmp_cross_x, _tmp2_x);
+        __m128 _rotated_y = _mm_add_ps(_tmp_cross_y, _tmp2_y);
+        __m128 _rotated_z = _mm_add_ps(_tmp_cross_z, _tmp2_z);
+
+        buffer[i].x = _rotated_x;
+        buffer[i].y = _rotated_y;
+        buffer[i].z = _rotated_z;
+    }
+}
 
 static bool v3_should_clip(V3 pos, GameCamera *camera, float aspect_ratio) {
     float max_x = tanf(camera->fov/2.0f)*camera->znear * (pos.z/camera->znear) * 
@@ -65,123 +128,22 @@ static void renderer_transform_light_and_cull(RendererState *render_state,
                                               int buffer_height) {
     render_state->draw_count = 0;
     // transform vertices to view space
-    
-    {
+    { 
         Quaternion rotation = rotation_q4(-camera->theta_x, v3(1,0,0))*
-                rotation_q4(-camera->theta_y, v3(0,1,0));
+            rotation_q4(-camera->theta_y, v3(0,1,0));
 
-        __m128 _qw = _mm_set1_ps(rotation.scalar); 
-        __m128 _qx = _mm_set1_ps(rotation.vector.x); 
-        __m128 _qy = _mm_set1_ps(rotation.vector.y); 
-        __m128 _qz = _mm_set1_ps(rotation.vector.z); 
-
-        __m128 _cam_x = _mm_set1_ps(camera->pos.x);
-        __m128 _cam_y = _mm_set1_ps(camera->pos.y);
-        __m128 _cam_z = _mm_set1_ps(camera->pos.z);
-
-        for (uint32_t vertex = 0; vertex < render_state->vertex_count; ++vertex) {
-            Vertex4 _vertex = render_state->vertex_buffer[vertex];
-
-          
-            // translate position in world relative to camera
-            _vertex.x = _mm_sub_ps(_vertex.x, _cam_x);
-            _vertex.y = _mm_sub_ps(_vertex.y, _cam_y);
-            _vertex.z = _mm_sub_ps(_vertex.z, _cam_z);
-
-            //rotate world relative to comara
-            __m128 _cross_x = _mm_sub_ps(_mm_mul_ps(_qy, _vertex.z), _mm_mul_ps(_qz, _vertex.y));
-            __m128 _cross_y = _mm_sub_ps(_mm_mul_ps(_qz, _vertex.x), _mm_mul_ps(_qx, _vertex.z));
-            __m128 _cross_z = _mm_sub_ps(_mm_mul_ps(_qx, _vertex.y), _mm_mul_ps(_qy, _vertex.x));
-
-            __m128 _scaled_x = _mm_mul_ps(_vertex.x, _qw);
-            __m128 _scaled_y = _mm_mul_ps(_vertex.y, _qw);
-            __m128 _scaled_z = _mm_mul_ps(_vertex.z, _qw);
-
-
-            __m128 _dot = _mm_add_ps(_mm_add_ps(_mm_mul_ps(_vertex.x, _qx), _mm_mul_ps(_vertex.y, _qy)),
-                    _mm_mul_ps(_vertex.z, _qz));
-
-            __m128 _tmp_w = _mm_mul_ps(_mm_set1_ps(-1.0f), _dot);
-            __m128 _tmp_x = _mm_add_ps(_cross_x, _scaled_x);
-            __m128 _tmp_y = _mm_add_ps(_cross_y, _scaled_y);
-            __m128 _tmp_z = _mm_add_ps(_cross_z, _scaled_z);
-
-
-            __m128 _conj_w = _qw;
-            __m128 _conj_x = _mm_mul_ps(_mm_set1_ps(-1.0f), _qx);
-            __m128 _conj_y = _mm_mul_ps(_mm_set1_ps(-1.0f), _qy);
-            __m128 _conj_z = _mm_mul_ps(_mm_set1_ps(-1.0f), _qz);
-
-            __m128 _tmp2_x = _mm_add_ps(_mm_mul_ps(_tmp_w, _conj_x), _mm_mul_ps(_conj_w, _tmp_x));
-            __m128 _tmp2_y = _mm_add_ps(_mm_mul_ps(_tmp_w, _conj_y), _mm_mul_ps(_conj_w, _tmp_y));
-            __m128 _tmp2_z = _mm_add_ps(_mm_mul_ps(_tmp_w, _conj_z), _mm_mul_ps(_conj_w, _tmp_z));
-
-            __m128 _tmp_cross_x = _mm_sub_ps(_mm_mul_ps(_tmp_y, _conj_z), _mm_mul_ps(_tmp_z, _conj_y));
-            __m128 _tmp_cross_y = _mm_sub_ps(_mm_mul_ps(_tmp_z, _conj_x), _mm_mul_ps(_tmp_x, _conj_z));
-            __m128 _tmp_cross_z = _mm_sub_ps(_mm_mul_ps(_tmp_x, _conj_y), _mm_mul_ps(_tmp_y, _conj_x));
-
-            __m128 _rotated_x = _mm_add_ps(_tmp_cross_x, _tmp2_x);
-            __m128 _rotated_y = _mm_add_ps(_tmp_cross_y, _tmp2_y);
-            __m128 _rotated_z = _mm_add_ps(_tmp_cross_z, _tmp2_z);
-
-            render_state->vertex_buffer[vertex].x = _rotated_x;
-            render_state->vertex_buffer[vertex].y = _rotated_y;
-            render_state->vertex_buffer[vertex].z = _rotated_z;
-        }
-
+        vertex4_buffer_to_view(render_state->vertex_buffer,
+                               camera,
+                               rotation,
+                               render_state->vertex_count);
 #if 1
-        for (uint32_t normal = 0; normal < render_state->vertex_count; ++normal) {
-            Vertex4 _vertex = render_state->vertex_buffer[normal];
-
-          
-            // translate position in world relative to camera
-            _vertex.x = _mm_sub_ps(_vertex.x, _cam_x);
-            _vertex.y = _mm_sub_ps(_vertex.y, _cam_y);
-            _vertex.z = _mm_sub_ps(_vertex.z, _cam_z);
-
-            //rotate world relative to comara
-            __m128 _cross_x = _mm_sub_ps(_mm_mul_ps(_qy, _vertex.z), _mm_mul_ps(_qz, _vertex.y));
-            __m128 _cross_y = _mm_sub_ps(_mm_mul_ps(_qz, _vertex.x), _mm_mul_ps(_qx, _vertex.z));
-            __m128 _cross_z = _mm_sub_ps(_mm_mul_ps(_qx, _vertex.y), _mm_mul_ps(_qy, _vertex.x));
-
-            __m128 _scaled_x = _mm_mul_ps(_vertex.x, _qw);
-            __m128 _scaled_y = _mm_mul_ps(_vertex.y, _qw);
-            __m128 _scaled_z = _mm_mul_ps(_vertex.z, _qw);
-
-
-            __m128 _dot = _mm_add_ps(_mm_add_ps(_mm_mul_ps(_vertex.x, _qx), _mm_mul_ps(_vertex.y, _qy)),
-                    _mm_mul_ps(_vertex.z, _qz));
-
-            __m128 _tmp_w = _mm_mul_ps(_mm_set1_ps(-1.0f), _dot);
-            __m128 _tmp_x = _mm_add_ps(_cross_x, _scaled_x);
-            __m128 _tmp_y = _mm_add_ps(_cross_y, _scaled_y);
-            __m128 _tmp_z = _mm_add_ps(_cross_z, _scaled_z);
-
-
-            __m128 _conj_w = _qw;
-            __m128 _conj_x = _mm_mul_ps(_mm_set1_ps(-1.0f), _qx);
-            __m128 _conj_y = _mm_mul_ps(_mm_set1_ps(-1.0f), _qy);
-            __m128 _conj_z = _mm_mul_ps(_mm_set1_ps(-1.0f), _qz);
-
-            __m128 _tmp2_x = _mm_add_ps(_mm_mul_ps(_tmp_w, _conj_x), _mm_mul_ps(_conj_w, _tmp_x));
-            __m128 _tmp2_y = _mm_add_ps(_mm_mul_ps(_tmp_w, _conj_y), _mm_mul_ps(_conj_w, _tmp_y));
-            __m128 _tmp2_z = _mm_add_ps(_mm_mul_ps(_tmp_w, _conj_z), _mm_mul_ps(_conj_w, _tmp_z));
-
-            __m128 _tmp_cross_x = _mm_sub_ps(_mm_mul_ps(_tmp_y, _conj_z), _mm_mul_ps(_tmp_z, _conj_y));
-            __m128 _tmp_cross_y = _mm_sub_ps(_mm_mul_ps(_tmp_z, _conj_x), _mm_mul_ps(_tmp_x, _conj_z));
-            __m128 _tmp_cross_z = _mm_sub_ps(_mm_mul_ps(_tmp_x, _conj_y), _mm_mul_ps(_tmp_y, _conj_x));
-
-            __m128 _rotated_x = _mm_add_ps(_tmp_cross_x, _tmp2_x);
-            __m128 _rotated_y = _mm_add_ps(_tmp_cross_y, _tmp2_y);
-            __m128 _rotated_z = _mm_add_ps(_tmp_cross_z, _tmp2_z);
-
-            render_state->vertex_buffer[normal].x = _rotated_x;
-            render_state->vertex_buffer[normal].y = _rotated_y;
-            render_state->vertex_buffer[normal].z = _rotated_z;
-            
-        }
-    }
+        vertex4_buffer_to_view(render_state->normal_buffer,
+                               camera,
+                               rotation,
+                               render_state->normal_count);
 #endif
+
+    }
 
     // Backface culling
     for (uint32_t triangle = 0; triangle < render_state->polygon_count; ++triangle) {
@@ -485,203 +447,279 @@ static void renderer_draw_triangles_filled(OffscreenBuffer *buffer,
                                            Triangle *triangles,
                                            int count) {
 
-    V3 white_point = v3(100,100,100);
-    for (int i = 0; i < count; ++i) {
+    // Draw Triangles
+    {
+        V3 white_point = v3(100,100,100);
+        for (int i = 0; i < count; ++i) {
 
 
-        V3 vert1 = triangle_get_attribute_from_buffer(triangles[i].v1, vertices);
-        V3 vert2 = triangle_get_attribute_from_buffer(triangles[i].v2, vertices);
-        V3 vert3 = triangle_get_attribute_from_buffer(triangles[i].v3, vertices);
+            V3 vert1 = triangle_get_attribute_from_buffer(triangles[i].v1, vertices);
+            V3 vert2 = triangle_get_attribute_from_buffer(triangles[i].v2, vertices);
+            V3 vert3 = triangle_get_attribute_from_buffer(triangles[i].v3, vertices);
 
-        V3 v1_color = triangle_get_attribute_from_buffer(triangles[i].v1, colors);
-        V3 v2_color = triangle_get_attribute_from_buffer(triangles[i].v2, colors);
-        V3 v3_color = triangle_get_attribute_from_buffer(triangles[i].v3, colors);
+            V3 v1_color = triangle_get_attribute_from_buffer(triangles[i].v1, colors);
+            V3 v2_color = triangle_get_attribute_from_buffer(triangles[i].v2, colors);
+            V3 v3_color = triangle_get_attribute_from_buffer(triangles[i].v3, colors);
 
-        color_correct_brightness(&v1_color, white_point);
-        color_correct_brightness(&v2_color, white_point);
-        color_correct_brightness(&v3_color, white_point);
+            color_correct_brightness(&v1_color, white_point);
+            color_correct_brightness(&v2_color, white_point);
+            color_correct_brightness(&v3_color, white_point);
 
-        if (renderer_v3_isclipped(vert1)) continue;
-        if (renderer_v3_isclipped(vert2)) continue;
-        if (renderer_v3_isclipped(vert3)) continue;
+            if (renderer_v3_isclipped(vert1)) continue;
+            if (renderer_v3_isclipped(vert2)) continue;
+            if (renderer_v3_isclipped(vert3)) continue;
 
-        //sort vertexes v3 is the biggest
-        if (vert3.y > vert2.y) {
-            v3_swap(&vert3, &vert2);
-            v3_swap(&v3_color, &v2_color);
+            //sort vertexes v3 is the biggest
+            if (vert3.y > vert2.y) {
+                v3_swap(&vert3, &vert2);
+                v3_swap(&v3_color, &v2_color);
 
-        }
-
-        if (vert2.y > vert1.y) {
-            v3_swap(&vert2, &vert1);
-            v3_swap(&v2_color, &v1_color);
-        }
-
-        if (vert3.y > vert2.y) {
-            v3_swap(&vert3, &vert2);
-            v3_swap(&v3_color, &v2_color);
-        }
-
-        if (vert3.y == vert2.y) {
-            if (vert3.x > vert2.x) {
-                renderer_draw_flat_top_triangle(buffer, zbuffer, vert2, vert3, vert1, v2_color, v3_color, v1_color);
-            }
-            else {
-                renderer_draw_flat_top_triangle(buffer, zbuffer, vert3, vert2, vert1, v3_color, v2_color, v1_color);
             }
 
-            continue;
-        }
-
-        if (vert1.y == vert2.y) {
-            if (vert1.x > vert2.x) {
-                renderer_draw_flat_bottom_triangle(buffer, zbuffer, vert2, vert1, vert3, v2_color, v1_color, v3_color);
+            if (vert2.y > vert1.y) {
+                v3_swap(&vert2, &vert1);
+                v3_swap(&v2_color, &v1_color);
             }
-            else {
-                renderer_draw_flat_bottom_triangle(buffer, zbuffer, vert1, vert2, vert3, v1_color, v2_color, v3_color);
+
+            if (vert3.y > vert2.y) {
+                v3_swap(&vert3, &vert2);
+                v3_swap(&v3_color, &v2_color);
             }
-            continue;
-        }
 
-        float lerp_factor = vert2.y-vert1.y;
-        float delta_x = vert3.y-vert1.y;
-
-        V3 vert4;
-        vert4.x = f_lerp(delta_x, lerp_factor, vert1.x, vert3.x);
-        vert4.y = vert2.y;
-        vert4.z = f_lerp(delta_x, lerp_factor, vert1.z, vert3.z);
-
-        V3 v4_color = v3_lerp(delta_x, lerp_factor, v1_color, v3_color);
-
-        if (vert4.x > vert2.x) {
-            renderer_draw_flat_top_triangle(buffer, zbuffer, vert2, vert4, vert1, v2_color, v4_color, v1_color);
-            renderer_draw_flat_bottom_triangle(buffer, zbuffer, vert2, vert4, vert3, v2_color, v4_color, v3_color);
-        }
-        else {
-            renderer_draw_flat_top_triangle(buffer, zbuffer, vert4, vert2, vert1, v4_color, v2_color, v1_color);
-            renderer_draw_flat_bottom_triangle(buffer, zbuffer, vert4, vert2, vert3, v4_color, v2_color, v3_color);
-        }
-    }
-
-
-    // POST PROCESSING BLOOM EFFECT
-    uint32_t *in_pixels = (uint32_t *)buffer->memory;
-    uint32_t *out_pixels = (uint32_t *)postbuffer->memory;
-    int radius = 2;
-    for (int y = 0; y < postbuffer->height; y++) {
-        if (y < radius || y + radius == buffer->height) {
-            continue;
-        }
-        for (int x = 0; x < postbuffer->width; x++) {
-        if (x < radius || x + radius == buffer->width) {
-            continue;
-        }
-            int sumr = 0;
-            int sumg = 0;
-            int sumb = 0;
-            for (int i = -radius; i < radius+1; ++i) {
-                sumr += ((in_pixels[(y*5+i)*postbuffer->width+x*5+i] & 0x00FF0000) >> 16);
-                sumg += ((in_pixels[(y*5+i)*postbuffer->width+x*5+i] & 0x0000FF00) >> 8);
-                sumb += (in_pixels[(y*5+i)*postbuffer->width+x*5+i] & 0x000000FF);
+            if (vert3.y == vert2.y) {
+                if (vert3.x > vert2.x) {
+                    renderer_draw_flat_top_triangle(buffer, zbuffer, vert2, vert3, vert1, v2_color, v3_color, v1_color);
+                }
+                else {
+                    renderer_draw_flat_top_triangle(buffer, zbuffer, vert3, vert2, vert1, v3_color, v2_color, v1_color);
                 }
 
-            uint8_t red = (uint8_t)(sumr/(radius*2+1)*(radius*2+1)); 
-            uint8_t green = (uint8_t)(sumg/(radius*2+1)*(radius*2+1)); 
-            uint8_t blue = (uint8_t)(sumb/(radius*2+1)*(radius*2+1)); 
-            out_pixels[(y)*postbuffer->width+x] = red << 16 | green << 8 | blue;
-        }
-    }
-
-    for (int i = 0; i < 5; ++i) {
-        uint32_t *pixels = (uint32_t *)postbuffer->memory;
-        for (int y = 0; y < postbuffer->height; ++y) {
-            if (y < 1 || y + 1 == postbuffer->height) {
                 continue;
             }
 
-            int sumr = (((pixels[(y+1)*postbuffer->width]) & 0x00FF0000) >> 16) +
-                (((pixels[(y)*postbuffer->width]) & 0x00FF0000) >> 16) +
-                (((pixels[(y-1)*postbuffer->width]) & 0x00FF0000) >> 16); 
-
-            int sumg = (((pixels[(y+1)*postbuffer->width]) & 0x0000FF00) >> 8) +
-                (((pixels[(y)*postbuffer->width]) & 0x0000FF00) >> 8) +
-                (((pixels[(y-1)*postbuffer->width]) & 0x0000FF00) >> 8); 
-
-            int sumb = ((pixels[(y+1)*postbuffer->width]) & 0x000000FF) +
-                ((pixels[(y)*postbuffer->width]) & 0x000000FF) +
-                ((pixels[(y-1)*postbuffer->width]) & 0x000000FF); 
-
-            int counter = 3;
-            int leftr = 0;
-            int leftg = 0;
-            int leftb = 0;
-
-            for (int x = 0; x < postbuffer->width; ++x) {
-                if ((x + 1) < postbuffer->width) {
-
-                    sumr += (((pixels[(y-1)*postbuffer->width+x+1] & 0x00FF0000) >> 16) + 
-                            ((pixels[(y)*postbuffer->width+x+1] & 0x00FF0000) >> 16) +
-                            ((pixels[(y+1)*postbuffer->width+x+1] & 0x00FF0000) >> 16));
-
-                    sumg += (((pixels[(y-1)*postbuffer->width+x+1] & 0x0000FF00) >> 8) + 
-                            ((pixels[(y)*postbuffer->width+x+1] & 0x0000FF00) >> 8) +
-                            ((pixels[(y+1)*postbuffer->width+x+1] & 0x0000FF00) >> 8));
-
-                    sumb += ((pixels[(y-1)*postbuffer->width+x+1] & 0x000000FF) + 
-                            (pixels[(y)*postbuffer->width+x+1] & 0x000000FF) +
-                            (pixels[(y+1)*postbuffer->width+x+1] & 0x000000FF));
-
-                    counter += 3;
+            if (vert1.y == vert2.y) {
+                if (vert1.x > vert2.x) {
+                    renderer_draw_flat_bottom_triangle(buffer, zbuffer, vert2, vert1, vert3, v2_color, v1_color, v3_color);
                 }
-
-                uint8_t red = (uint8_t)(sumr/counter); 
-                uint8_t green = (uint8_t)(sumg/counter); 
-                uint8_t blue = (uint8_t)(sumb/counter); 
-
-                sumr -= leftr;
-                sumg -= leftg;
-                sumb -= leftb;
-
-                leftr = (((pixels[(y-1)*postbuffer->width+x] & 0x00FF0000) >> 16) + 
-                        ((pixels[(y)*postbuffer->width+x] & 0x00FF0000) >> 16) +
-                        ((pixels[(y+1)*postbuffer->width+x] & 0x00FF0000) >> 16));
-
-                leftg = (((pixels[(y-1)*postbuffer->width+x] & 0x0000FF00) >> 8) + 
-                        ((pixels[(y)*postbuffer->width+x] & 0x0000FF00) >> 8) +
-                        ((pixels[(y+1)*postbuffer->width+x] & 0x0000FF00) >> 8));
-
-                leftb = ((pixels[(y-1)*postbuffer->width+x] & 0x000000FF) + 
-                        (pixels[(y)*postbuffer->width+x] & 0x000000FF) +
-                        (pixels[(y+1)*postbuffer->width+x] & 0x000000FF));
-
-                if (x >= 1) {
-                    counter -= 3;
+                else {
+                    renderer_draw_flat_bottom_triangle(buffer, zbuffer, vert1, vert2, vert3, v1_color, v2_color, v3_color);
                 }
+                continue;
+            }
 
-                pixels[(y)*postbuffer->width+x] = red << 16 | green << 8 | blue;
+            float lerp_factor = vert2.y-vert1.y;
+            float delta_x = vert3.y-vert1.y;
+
+            V3 vert4;
+            vert4.x = f_lerp(delta_x, lerp_factor, vert1.x, vert3.x);
+            vert4.y = vert2.y;
+            vert4.z = f_lerp(delta_x, lerp_factor, vert1.z, vert3.z);
+
+            V3 v4_color = v3_lerp(delta_x, lerp_factor, v1_color, v3_color);
+
+            if (vert4.x > vert2.x) {
+                renderer_draw_flat_top_triangle(buffer, zbuffer, vert2, vert4, vert1, v2_color, v4_color, v1_color);
+                renderer_draw_flat_bottom_triangle(buffer, zbuffer, vert2, vert4, vert3, v2_color, v4_color, v3_color);
+            }
+            else {
+                renderer_draw_flat_top_triangle(buffer, zbuffer, vert4, vert2, vert1, v4_color, v2_color, v1_color);
+                renderer_draw_flat_bottom_triangle(buffer, zbuffer, vert4, vert2, vert3, v4_color, v2_color, v3_color);
             }
         }
     }
 
-    for (int y = 0; y < postbuffer->height; ++y) {
-        for (int x = 0; x < postbuffer->width; ++x) {
-            uint32_t *bluredpixel = (uint32_t *)postbuffer->memory+(y)*postbuffer->width+x;
-            uint32_t *bpixel = (uint32_t *)buffer->memory+y*5*buffer->width+x*5;
-            uint8_t bred = (uint8_t)((*bpixel & 0x00FF0000) >> 16);
-            uint8_t bgreen = (uint8_t)((*bpixel & 0x0000FF00) >> 8);
-            uint8_t bblue = (uint8_t)(*bpixel & 0x000000FF);
+#if 1
+    // POST PROCESSING BLOOM EFFECT
+    
+    // box sample buffer into the post processing buffer 
+    {
+        uint32_t *in_pixels = (uint32_t *)buffer->memory;
+        uint32_t *out_pixels = (uint32_t *)postbuffer->memory;
+        int radius = 2;
+        for (int y = 0; y < postbuffer->height; y++) {
+            if (y < radius || y + radius == buffer->height) {
+                continue;
+            }
 
-            uint8_t zred = (uint8_t)((*bluredpixel & 0x00FF0000) >> 16);
-            uint8_t zgreen = (uint8_t)((*bluredpixel & 0x0000FF00) >> 8);
-            uint8_t zblue = (uint8_t)(*bluredpixel & 0x000000FF);
+            for (int x = 0; x < postbuffer->width; x++) {
+                if (x < radius || x + radius == buffer->width) {
+                    continue;
+                }
 
-            bred + zred > 255 ? zred = 255 : zred += bred;
-            bgreen + zgreen > 255 ? zgreen = 255 : zgreen += bgreen;
-            bblue + zblue > 255 ? zblue = 255 : zblue += bblue;
+                int sumbright = 0;
+                for (int i = -radius; i <radius+1; ++i) {
+                    for (int j = -radius; j < radius+1; ++j) {
+                        sumbright += ((in_pixels[(y*5+i)*buffer->width+x*5+j] & 0xFF000000) >> 24);
+                    }
+                }
 
-            *bpixel = (zred << 16) | (zgreen << 8) | zblue;
+                if (sumbright < 255) {
+                    out_pixels[(y)*postbuffer->width+x] = 0;
+                    continue;
+                }
+
+                int sumr = 0;
+                int sumg = 0;
+                int sumb = 0;
+                for (int i = -radius; i < radius+1; ++i) {
+                    for (int j = -radius; j < radius+1; ++j) {
+                        sumr += ((in_pixels[(y*5+i)*buffer->width+x*5+j] & 0x00FF0000) >> 16);
+                        sumg += ((in_pixels[(y*5+i)*buffer->width+x*5+j] & 0x0000FF00) >> 8);
+                        sumb += (in_pixels[(y*5+i)*buffer->width+x*5+j] & 0x000000FF);
+                    }
+                }
+
+                uint8_t red = (uint8_t)(sumr/(radius*2+1)*(radius*2+1)); 
+                uint8_t green = (uint8_t)(sumg/(radius*2+1)*(radius*2+1)); 
+                uint8_t blue = (uint8_t)(sumb/(radius*2+1)*(radius*2+1)); 
+                out_pixels[(y)*postbuffer->width+x] = red << 16 | green << 8 | blue;
+            }
         }
     }
+
+    // Apply box blur
+    {
+        uint32_t *pixels = (uint32_t *)postbuffer->memory;
+        for (int i = 0; i < 5; ++i) {
+            for (int y = 0; y < postbuffer->height; ++y) {
+                if (y < 1 || y + 1 == postbuffer->height) {
+                    continue;
+                }
+
+                int sumr = (((pixels[(y+1)*postbuffer->width]) & 0x00FF0000) >> 16) +
+                    (((pixels[(y)*postbuffer->width]) & 0x00FF0000) >> 16) +
+                    (((pixels[(y-1)*postbuffer->width]) & 0x00FF0000) >> 16); 
+
+                int sumg = (((pixels[(y+1)*postbuffer->width]) & 0x0000FF00) >> 8) +
+                    (((pixels[(y)*postbuffer->width]) & 0x0000FF00) >> 8) +
+                    (((pixels[(y-1)*postbuffer->width]) & 0x0000FF00) >> 8); 
+
+                int sumb = ((pixels[(y+1)*postbuffer->width]) & 0x000000FF) +
+                    ((pixels[(y)*postbuffer->width]) & 0x000000FF) +
+                    ((pixels[(y-1)*postbuffer->width]) & 0x000000FF); 
+
+                int counter = 3;
+                int leftr = 0;
+                int leftg = 0;
+                int leftb = 0;
+
+                for (int x = 0; x < postbuffer->width; ++x) {
+                    if ((x + 1) < postbuffer->width) {
+
+                        sumr += (((pixels[(y-1)*postbuffer->width+x+1] & 0x00FF0000) >> 16) + 
+                                ((pixels[(y)*postbuffer->width+x+1] & 0x00FF0000) >> 16) +
+                                ((pixels[(y+1)*postbuffer->width+x+1] & 0x00FF0000) >> 16));
+
+                        sumg += (((pixels[(y-1)*postbuffer->width+x+1] & 0x0000FF00) >> 8) + 
+                                ((pixels[(y)*postbuffer->width+x+1] & 0x0000FF00) >> 8) +
+                                ((pixels[(y+1)*postbuffer->width+x+1] & 0x0000FF00) >> 8));
+
+                        sumb += ((pixels[(y-1)*postbuffer->width+x+1] & 0x000000FF) + 
+                                (pixels[(y)*postbuffer->width+x+1] & 0x000000FF) +
+                                (pixels[(y+1)*postbuffer->width+x+1] & 0x000000FF));
+
+                        counter += 3;
+                    }
+
+                    uint8_t red = (uint8_t)(sumr/counter); 
+                    uint8_t green = (uint8_t)(sumg/counter); 
+                    uint8_t blue = (uint8_t)(sumb/counter); 
+
+                    sumr -= leftr;
+                    sumg -= leftg;
+                    sumb -= leftb;
+
+                    leftr = (((pixels[(y-1)*postbuffer->width+x] & 0x00FF0000) >> 16) + 
+                            ((pixels[(y)*postbuffer->width+x] & 0x00FF0000) >> 16) +
+                            ((pixels[(y+1)*postbuffer->width+x] & 0x00FF0000) >> 16));
+
+                    leftg = (((pixels[(y-1)*postbuffer->width+x] & 0x0000FF00) >> 8) + 
+                            ((pixels[(y)*postbuffer->width+x] & 0x0000FF00) >> 8) +
+                            ((pixels[(y+1)*postbuffer->width+x] & 0x0000FF00) >> 8));
+
+                    leftb = ((pixels[(y-1)*postbuffer->width+x] & 0x000000FF) + 
+                            (pixels[(y)*postbuffer->width+x] & 0x000000FF) +
+                            (pixels[(y+1)*postbuffer->width+x] & 0x000000FF));
+
+                    if (x >= 1) {
+                        counter -= 3;
+                    }
+
+                    pixels[(y)*postbuffer->width+x] = red << 16 | green << 8 | blue;
+                }
+            }
+        }
+    }
+
+
+    // Upscale buffer using bilinear interpolation and blend into the display buffer
+    for (int y = 0; y < postbuffer->height; ++y) {
+        if (y + 1 == postbuffer->height) {
+            continue;
+        }
+
+        for (int x = 0; x < postbuffer->width; ++x) {
+            if (x + 1 == postbuffer->width) {
+                continue;
+            }
+
+            uint32_t *color_start = (uint32_t *)postbuffer->memory +
+                y*postbuffer->width+x;
+
+            uint32_t *ycolor_end = (uint32_t *)postbuffer->memory +
+                (y+1)*postbuffer->width+x;
+
+            uint32_t *xcolor_end = (uint32_t *)postbuffer->memory +
+                (y)*postbuffer->width+x+1;
+
+            if (*color_start == 0 && *ycolor_end == 0 && *xcolor_end == 0) {
+                continue;
+            }
+
+            float yr_inc = ((float)((*ycolor_end & 0x00FF0000) >> 16) -
+                    (float)((*color_start & 0x00FF0000) >> 16)) / 5.0f; 
+
+            float yg_inc = ((float)((*ycolor_end & 0x0000FF00) >> 8) -
+                    (float)((*color_start & 0x0000FF00) >> 8)) / 5.0f; 
+
+            float yb_inc = ((float)(*ycolor_end & 0x000000FF) -
+                    (float)(*color_start & 0x000000FF)) / 5.0f;
+
+            float xr_inc = ((float)((*xcolor_end & 0x00FF0000) >> 16) -
+                    (float)((*color_start & 0x00FF0000) >> 16)) / 5.0f;
+
+            float xg_inc = ((float)((*xcolor_end & 0x0000FF00) >> 8) -
+                    (float)((*color_start & 0x0000FF00) >> 8)) / 5.0f;
+
+            float xb_inc = ((float)(*xcolor_end & 0x000000FF) -
+                    (float)(*color_start & 0x000000FF)) / 5.0f;
+
+            for (int i = 0; i < 5; ++i) {
+                float r = (float)((*color_start & 0x00FF0000) >> 16) + i*yr_inc;
+                float g = (float)((*color_start & 0x0000FF00) >> 8) + i*yg_inc;
+                float b = (float)(*color_start & 0x000000FF) + i*yb_inc;
+                for (int j = 0; j < 5; ++j) {
+                    uint32_t *out_pixel = (uint32_t *)buffer->memory +
+                        (y*5+i)*buffer->width+(x*5)+j;
+
+                    float out_r = (uint8_t)((*out_pixel & 0x00FF0000) >> 16);
+                    float out_g = (uint8_t)((*out_pixel & 0x0000FF00) >> 8);
+                    float out_b = (uint8_t)(*out_pixel & 0x000000FF);
+
+                    r + out_r > 255 ? out_r = 255 : out_r += r;
+                    g + out_g > 255 ? out_g = 255 : out_g += g;
+                    b + out_b > 255 ? out_b = 255 : out_b += b;
+
+                    *out_pixel = ((uint8_t)out_r << 16) | ((uint8_t)out_g << 8) | (uint8_t)out_b;
+
+                    r += xr_inc;
+                    g += xg_inc;
+                    b += xb_inc;
+                }
+            }
+        }
+    }
+#endif
 }
 
 
