@@ -1,6 +1,5 @@
 #include <emmintrin.h>
 #include <stdint.h>
-#include <xmmintrin.h>
 #include "renderer.h"
 
 #if DEBUG_MODE
@@ -136,13 +135,11 @@ static void renderer_transform_light_and_cull(RendererState *render_state,
                                camera,
                                rotation,
                                render_state->vertex_count);
-#if 1
+
         vertex4_buffer_to_view(render_state->normal_buffer,
                                camera,
                                rotation,
                                render_state->normal_count);
-#endif
-
     }
 
     // Backface culling
@@ -167,17 +164,26 @@ static void renderer_transform_light_and_cull(RendererState *render_state,
     for (uint32_t triangle = 0; triangle < render_state->draw_count; ++triangle) {
         Triangle current = render_state->polygons_to_draw[triangle];
 
-        V3 vertex1 = triangle_get_attribute_from_buffer(current.v1, render_state->vertex_buffer);
-        V3 vertex2 = triangle_get_attribute_from_buffer(current.v2, render_state->vertex_buffer);
-        V3 vertex3 = triangle_get_attribute_from_buffer(current.v3, render_state->vertex_buffer);
+        V3 vertex1 = triangle_get_attribute_from_buffer(current.v1, 
+                                                        render_state->vertex_buffer);
+        V3 vertex2 = triangle_get_attribute_from_buffer(current.v2, 
+                                                        render_state->vertex_buffer);
+        V3 vertex3 = triangle_get_attribute_from_buffer(current.v3, 
+                                                        render_state->vertex_buffer);
 
-        V3 v1_color = triangle_get_attribute_from_buffer(current.v1, render_state->vertex_colors);
-        V3 v2_color = triangle_get_attribute_from_buffer(current.v2, render_state->vertex_colors);
-        V3 v3_color = triangle_get_attribute_from_buffer(current.v3, render_state->vertex_colors);
+        V3 v1_color = triangle_get_attribute_from_buffer(current.v1, 
+                                                         render_state->vertex_colors);
+        V3 v2_color = triangle_get_attribute_from_buffer(current.v2, 
+                                                         render_state->vertex_colors);
+        V3 v3_color = triangle_get_attribute_from_buffer(current.v3, 
+                                                         render_state->vertex_colors);
 
-        V3 vn1 = triangle_get_attribute_from_buffer(current.vn1, render_state->vertex_buffer);
-        V3 vn2 = triangle_get_attribute_from_buffer(current.vn2, render_state->vertex_buffer);
-        V3 vn3 = triangle_get_attribute_from_buffer(current.vn3, render_state->vertex_buffer);
+        V3 vn1 = triangle_get_attribute_from_buffer(current.vn1, 
+                                                    render_state->vertex_buffer);
+        V3 vn2 = triangle_get_attribute_from_buffer(current.vn2, 
+                                                    render_state->vertex_buffer);
+        V3 vn3 = triangle_get_attribute_from_buffer(current.vn3, 
+                                                    render_state->vertex_buffer);
 
         // ambient light
         V3 v1_light = {};
@@ -186,7 +192,8 @@ static void renderer_transform_light_and_cull(RendererState *render_state,
 
         for (uint32_t light = 0; light < render_state->light_sources_count; ++light) {
             LightSource source = render_state->light_sources[light];
-            source.position = renderer_world_vertex_to_view(source.position, camera);
+            source.position = renderer_world_vertex_to_view(source.position, 
+                                                            camera);
             v1_light += compute_light_intensity(source, vertex1, vn1);
             v2_light += compute_light_intensity(source, vertex2, vn2);
             v3_light += compute_light_intensity(source, vertex3, vn3);
@@ -196,9 +203,15 @@ static void renderer_transform_light_and_cull(RendererState *render_state,
         v2_color = v3_pairwise_mul(v2_color, v2_light);
         v3_color = v3_pairwise_mul(v3_color, v3_light);
 
-        triangle_set_attribute_to_buffer(v1_color, current.v1, render_state->vertex_colors);
-        triangle_set_attribute_to_buffer(v2_color, current.v2, render_state->vertex_colors);
-        triangle_set_attribute_to_buffer(v3_color, current.v3, render_state->vertex_colors);
+        triangle_set_attribute_to_buffer(v1_color, 
+                                         current.v1, 
+                                         render_state->vertex_colors);
+        triangle_set_attribute_to_buffer(v2_color, 
+                                         current.v2, 
+                                         render_state->vertex_colors);
+        triangle_set_attribute_to_buffer(v3_color, 
+                                         current.v3, 
+                                         render_state->vertex_colors);
     }
 #endif // SHADING
 
@@ -253,6 +266,8 @@ static void renderer_transform_light_and_cull(RendererState *render_state,
 
             __m128 _float_res_x = _mm_add_ps(_mm_mul_ps(_normal_x, _buffer_x), _buffer_x);
             __m128 _float_res_y = _mm_add_ps(_mm_mul_ps(_mm_mul_ps(_normal_y, _mm_set1_ps(-1.0f)), _buffer_y), _buffer_y);
+            _float_res_x = _mm_cvtepi32_ps(_mm_cvttps_epi32(_float_res_x));
+            _float_res_y = _mm_cvtepi32_ps(_mm_cvttps_epi32(_float_res_y));
 
             render_state->vertex_buffer[vertex].x = _mm_or_ps(_float_res_x, _mask);
             render_state->vertex_buffer[vertex].y = _mm_or_ps(_float_res_y, _mask);
@@ -280,21 +295,21 @@ static void renderer_draw_background(OffscreenBuffer *buffer, uint32_t color) {
     }
 }
 
-static void clamp_to_screen(V3 *vertex) {
+static void clamp_to_screen(V3 *vertex, int buffer_width, int buffer_height) {
     if (vertex->x < 0) {
         vertex->x = 0;
     }
 
-    else if (vertex->x >= 1280) {
-        vertex->x = 1279;
+    else if (vertex->x >= buffer_width) {
+        vertex->x = (float)(buffer_width - 1);
     }
 
     if (vertex->y < 0) {
         vertex->y = 0;
     }
 
-    else if (vertex->y >= 720) {
-        vertex->y = 719;
+    else if (vertex->y >= buffer_height) {
+        vertex->y = (float)(buffer_height - 1);
     }
 }
 static void renderer_draw_line(OffscreenBuffer *buffer,
@@ -305,8 +320,8 @@ static void renderer_draw_line(OffscreenBuffer *buffer,
                                V3 end_color) {
 
 
-    clamp_to_screen(&start);
-    clamp_to_screen(&end);
+    clamp_to_screen(&start, buffer->width, buffer->height);
+    clamp_to_screen(&end, buffer->width, buffer->height);
     if (start.x > end.x) {
         v3_swap(&start, &end);
     }
@@ -372,6 +387,10 @@ static void renderer_draw_flat_top_triangle(OffscreenBuffer *buffer,
         
     float steps = (float)(bottom.y - right.y);
 
+    if (!steps) {
+        return;
+    }
+
     V3 right_inc = v3((bottom.x-right.x)/steps, 1, -(bottom.z-right.z)/steps);
     V3 left_inc = v3((bottom.x-left.x)/steps, 1, -(bottom.z-left.z)/steps);
     V3 left_color_inc = (bottom_color - left_color)/steps;
@@ -397,6 +416,11 @@ static void renderer_draw_flat_bottom_triangle(OffscreenBuffer *buffer,
                                                V3 top_color) {
 
     float steps = (float)(top.y - right.y);
+
+    if (!steps) {
+        return;
+    }
+
     V3 left_inc = v3((top.x-left.x)/steps, 1, (top.z-left.z)/steps);
     V3 right_inc = v3((top.x-right.x)/steps, 1, (top.z-right.z)/steps);
     V3 right_color_inc = (top_color - right_color)/steps;
@@ -461,13 +485,13 @@ static void renderer_draw_triangles_filled(OffscreenBuffer *buffer,
             V3 v2_color = triangle_get_attribute_from_buffer(triangles[i].v2, colors);
             V3 v3_color = triangle_get_attribute_from_buffer(triangles[i].v3, colors);
 
+            if (renderer_v3_isclipped(vert1)) {continue;}
+            if (renderer_v3_isclipped(vert2)) {continue;}
+            if (renderer_v3_isclipped(vert3)) {continue;}
+
             color_correct_brightness(&v1_color, white_point);
             color_correct_brightness(&v2_color, white_point);
             color_correct_brightness(&v3_color, white_point);
-
-            if (renderer_v3_isclipped(vert1)) continue;
-            if (renderer_v3_isclipped(vert2)) continue;
-            if (renderer_v3_isclipped(vert3)) continue;
 
             //sort vertexes v3 is the biggest
             if (vert3.y > vert2.y) {
@@ -531,7 +555,16 @@ static void renderer_draw_triangles_filled(OffscreenBuffer *buffer,
 #if 1
     // POST PROCESSING BLOOM EFFECT
     
+    // zero the buffer
+    {
+        uint32_t *pixels = (uint32_t *)postbuffer->memory;
+        for (int i = 0; i < postbuffer->width*postbuffer->height; ++i) {
+            pixels[i] = 0; 
+        }
+    }
+
     // box sample buffer into the post processing buffer 
+    int ratio = buffer->width / postbuffer->width;
     {
         uint32_t *in_pixels = (uint32_t *)buffer->memory;
         uint32_t *out_pixels = (uint32_t *)postbuffer->memory;
@@ -549,7 +582,7 @@ static void renderer_draw_triangles_filled(OffscreenBuffer *buffer,
                 int sumbright = 0;
                 for (int i = -radius; i <radius+1; ++i) {
                     for (int j = -radius; j < radius+1; ++j) {
-                        sumbright += ((in_pixels[(y*5+i)*buffer->width+x*5+j] & 0xFF000000) >> 24);
+                        sumbright += ((in_pixels[(y*ratio+i)*buffer->width+x*ratio+j] & 0xFF000000) >> 24);
                     }
                 }
 
@@ -563,9 +596,9 @@ static void renderer_draw_triangles_filled(OffscreenBuffer *buffer,
                 int sumb = 0;
                 for (int i = -radius; i < radius+1; ++i) {
                     for (int j = -radius; j < radius+1; ++j) {
-                        sumr += ((in_pixels[(y*5+i)*buffer->width+x*5+j] & 0x00FF0000) >> 16);
-                        sumg += ((in_pixels[(y*5+i)*buffer->width+x*5+j] & 0x0000FF00) >> 8);
-                        sumb += (in_pixels[(y*5+i)*buffer->width+x*5+j] & 0x000000FF);
+                        sumr += ((in_pixels[(y*ratio+i)*buffer->width+x*ratio+j] & 0x00FF0000) >> 16);
+                        sumg += ((in_pixels[(y*ratio+i)*buffer->width+x*ratio+j] & 0x0000FF00) >> 8);
+                        sumb += (in_pixels[(y*ratio+i)*buffer->width+x*ratio+j] & 0x000000FF);
                     }
                 }
 
@@ -580,7 +613,7 @@ static void renderer_draw_triangles_filled(OffscreenBuffer *buffer,
     // Apply box blur
     {
         uint32_t *pixels = (uint32_t *)postbuffer->memory;
-        for (int i = 0; i < 5; ++i) {
+        for (int i = 0; i < ratio; ++i) {
             for (int y = 0; y < postbuffer->height; ++y) {
                 if (y < 1 || y + 1 == postbuffer->height) {
                     continue;
@@ -677,30 +710,30 @@ static void renderer_draw_triangles_filled(OffscreenBuffer *buffer,
             }
 
             float yr_inc = ((float)((*ycolor_end & 0x00FF0000) >> 16) -
-                    (float)((*color_start & 0x00FF0000) >> 16)) / 5.0f; 
+                    (float)((*color_start & 0x00FF0000) >> 16)) / (float)ratio; 
 
             float yg_inc = ((float)((*ycolor_end & 0x0000FF00) >> 8) -
-                    (float)((*color_start & 0x0000FF00) >> 8)) / 5.0f; 
+                    (float)((*color_start & 0x0000FF00) >> 8)) / (float)ratio; 
 
             float yb_inc = ((float)(*ycolor_end & 0x000000FF) -
-                    (float)(*color_start & 0x000000FF)) / 5.0f;
+                    (float)(*color_start & 0x000000FF)) / (float)ratio;
 
             float xr_inc = ((float)((*xcolor_end & 0x00FF0000) >> 16) -
-                    (float)((*color_start & 0x00FF0000) >> 16)) / 5.0f;
+                    (float)((*color_start & 0x00FF0000) >> 16)) / (float)ratio;
 
             float xg_inc = ((float)((*xcolor_end & 0x0000FF00) >> 8) -
-                    (float)((*color_start & 0x0000FF00) >> 8)) / 5.0f;
+                    (float)((*color_start & 0x0000FF00) >> 8)) / (float)ratio;
 
             float xb_inc = ((float)(*xcolor_end & 0x000000FF) -
-                    (float)(*color_start & 0x000000FF)) / 5.0f;
+                    (float)(*color_start & 0x000000FF)) / (float)ratio;
 
-            for (int i = 0; i < 5; ++i) {
+            for (int i = 0; i < ratio; ++i) {
                 float r = (float)((*color_start & 0x00FF0000) >> 16) + i*yr_inc;
                 float g = (float)((*color_start & 0x0000FF00) >> 8) + i*yg_inc;
                 float b = (float)(*color_start & 0x000000FF) + i*yb_inc;
-                for (int j = 0; j < 5; ++j) {
+                for (int j = 0; j < ratio; ++j) {
                     uint32_t *out_pixel = (uint32_t *)buffer->memory +
-                        (y*5+i)*buffer->width+(x*5)+j;
+                        (y*ratio+i)*buffer->width+(x*ratio)+j;
 
                     float out_r = (uint8_t)((*out_pixel & 0x00FF0000) >> 16);
                     float out_g = (uint8_t)((*out_pixel & 0x0000FF00) >> 8);
@@ -709,6 +742,9 @@ static void renderer_draw_triangles_filled(OffscreenBuffer *buffer,
                     r + out_r > 255 ? out_r = 255 : out_r += r;
                     g + out_g > 255 ? out_g = 255 : out_g += g;
                     b + out_b > 255 ? out_b = 255 : out_b += b;
+                    out_r < 0 ? out_r = 0: out_r;
+                    out_g < 0 ? out_g = 0: out_g;
+                    out_b < 0 ? out_b = 0: out_b;
 
                     *out_pixel = ((uint8_t)out_r << 16) | ((uint8_t)out_g << 8) | (uint8_t)out_b;
 

@@ -104,8 +104,8 @@ struct GameMemory {
 };
 
 struct WorldChunk {
-    uint32_t x;
-    uint32_t z;
+    int x;
+    int z;
 };
 
 struct GameState {

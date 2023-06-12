@@ -180,7 +180,7 @@ static void generate_chunk(ParticleSystem *particles,
                 light_source, 
                 300, 1000, &seed);
 
-#if 1
+#if 0
         particles->vel[particles->particle_count].x = (float)(parkmiller_rand(&seed)%20)-10;
         particles->vel[particles->particle_count].y = (float)(parkmiller_rand(&seed)%20)-10;
         particles->vel[particles->particle_count].z = 0;
@@ -345,7 +345,7 @@ void game_update_and_render(GameMemory *memory,
         spring->render_obj = renderer_render_obj_create(render_state, spring_mesh, v3(1,0,0));
         state->camera.pos.x = 0;
         state->camera.pos.y = 0;
-        state->camera.pos.z = 0;
+        state->camera.pos.z = -20;
         state->camera.zfar = 100000; 
         state->camera.znear = 0.01f; 
         state->camera.fov = PI/3.0f;
