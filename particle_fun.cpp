@@ -157,7 +157,7 @@ static void generate_chunk(ParticleSystem *particles,
         make_light_source(render_state,
                 &particles->render_obj[light_source],
                 particles->pos[light_source],
-                    2*v3(sun_r,sun_g,sun_b));
+                    v3(sun_r,sun_g,sun_b));
     }
 
 
@@ -190,7 +190,9 @@ static void generate_chunk(ParticleSystem *particles,
         float g = (float)(parkmiller_rand(&seed) % 100) / 100;
         float b = (float)(parkmiller_rand(&seed) % 100) / 100;
 
-        particles->render_obj[particles->particle_count] = renderer_render_obj_create(render_state, mesh, v3(1,1,1));
+        particles->render_obj[particles->particle_count] = renderer_render_obj_create(render_state, 
+                                                                                      mesh, 
+                                                                                      v3(1,1,1));
         float mass = particles->mass[particles->particle_count];
         int parent_id = particles->id[particles->particle_count];
         ++particles->particle_count;
@@ -207,7 +209,9 @@ static void generate_chunk(ParticleSystem *particles,
 
                 particles->vel[particles->particle_count] = particles->vel[parent_id];
                 particles->f_accumulator[particles->particle_count] = {};
-                particles->render_obj[particles->particle_count] = renderer_render_obj_create(render_state, mesh, v3(1,1,1));
+                particles->render_obj[particles->particle_count] = renderer_render_obj_create(render_state, 
+                                                                                              mesh, 
+                                                                                              v3(1,1,1));
                 ++particles->particle_count;
 
             }
@@ -360,7 +364,7 @@ void game_update_and_render(GameMemory *memory,
     }
 #endif
 
-    renderer_draw_background(buffer, BLACK); 
+    renderer_draw_background(buffer, 0); 
 
     //clear z buffer every frame
     uint32_t zbuffer_size = zbuffer->width * zbuffer->height;

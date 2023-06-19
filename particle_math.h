@@ -11,6 +11,25 @@ struct V3 {
     inline V3 &operator+=(V3 a);
     inline V3 &operator-=(V3 a);
 };
+
+struct Vertex4 {
+    __m128 x;
+    __m128 y;
+    __m128 z;
+};
+
+struct Quaternion {
+    float scalar; 
+    V3 vector;
+          
+};
+
+struct Quaternion4 {
+    __m128 w;
+    Vertex4 vector;
+};
+
+
  
 static inline V3 v3(float x, float y, float z) {
     V3 result;
@@ -137,12 +156,6 @@ static inline V3 v3_lerp(float delta_x, float lerp_factor, V3 y0, V3 y1) {
 
 
 
-struct Quaternion {
-    float scalar; 
-    V3 vector;
-          
-};
-
 static Quaternion quat4(float w, float x, float y, float z) {
     Quaternion result;
     result.scalar = w;
@@ -232,6 +245,34 @@ static inline V3 v3_rotate_q4(V3 vec, Quaternion q) {
 
 static inline float f_lerp(float delta_x, float lerp_factor, float y0, float y1) {
     return y0 + (lerp_factor)*((y1-y0)/(delta_x));
+}
+
+static inline Vertex4 vertex4_cross(Vertex4 _a, Vertex4 _b) {
+    Vertex4 result;
+    result.x = _mm_sub_ps(_mm_mul_ps(_a.y, _b.z), _mm_mul_ps(_a.z, _b.y));
+    result.y = _mm_sub_ps(_mm_mul_ps(_a.z, _b.x), _mm_mul_ps(_a.x, _b.z));
+    result.z = _mm_sub_ps(_mm_mul_ps(_a.x, _b.y), _mm_mul_ps(_a.y, _b.x));
+    return result;
+
+}
+
+static inline Vertex4 vertex4_scale(Vertex4 _a, __m128 _scalar) {
+    Vertex4 result;
+    result.x = _mm_mul_ps(_a.x, _scalar);
+    result.y = _mm_mul_ps(_a.y, _scalar);
+    result.z = _mm_mul_ps(_a.z, _scalar);
+
+    return result;
+}
+
+static inline Vertex4 vertex4_add(Vertex4 _a, Vertex4 _b) {
+    Vertex4 result;
+
+    result.x = _mm_add_ps(_a.x, _b.x);
+    result.y = _mm_add_ps(_a.y, _b.y);
+    result.z = _mm_add_ps(_a.z, _b.z);
+
+    return result;
 }
 
 #define PHYSICS_MATH_H

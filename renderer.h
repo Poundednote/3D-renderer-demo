@@ -34,21 +34,6 @@ struct V3Screen {
     float z;
 };
 
-struct V3Screen4 {
-    __m128i x;
-    __m128i y;
-};
-
-struct Vertex4 {
-    __m128 x;
-    __m128 y;
-    __m128 z;
-};
-
-struct Vertex4Cube {
-    Vertex4 vertices[2];
-};
-
 // indexes into a vertex array;
 struct Triangle {
     int v1;
@@ -76,6 +61,8 @@ struct Mesh {
 struct RenderObj {
     uint32_t vstart;
     uint32_t vend;
+    uint32_t nstart;
+    uint32_t nend;
     uint32_t index_start;
     uint32_t index_end;
     Mesh *mesh;

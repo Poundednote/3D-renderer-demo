@@ -32,28 +32,53 @@ static inline V3 renderer_view_vertex_to_screen(V3 view_pos, OffscreenBuffer *bu
     return v3(x, y, view_pos.z);
 }
 
-static Vertex4 vertex4_rotate(Vertex4 _vertex, Quaternion4 _q) {
+static inline Vertex4 vertex4_cross(Vertex4 a, Vertex4 b) {
+    Vertex4 result;
+    result.x = _mm_sub_ps(_mm_mul_ps(_q.vector.y, _vertex.z), _mm_mul_ps(_q.vector.z, _vertex.y));
+    result.y = _mm_sub_ps(_mm_mul_ps(_q.vector.z, _vertex.x), _mm_mul_ps(_q.vector.x, _vertex.z));
+    result.z = _mm_sub_ps(_mm_mul_ps(_q.vector.x, _vertex.y), _mm_mul_ps(_q.vector.y, _vertex.x));
+
+    return result;
+
+}
+static Vertex4 vertex4_rotate(Vertex4 vertex, Quaternion4 q) {
+
         Vertex4 result = {};
+        __m128 _cross_x = _mm_sub_ps(_mm_mul_ps(q.vector.y, vertex.z), _mm_mul_ps(q.vector.z, vertex.y));
+        __m128 _cross_y = _mm_sub_ps(_mm_mul_ps(q.vector.z, vertex.x), _mm_mul_ps(q.vector.x, vertex.z));
+        __m128 _cross_z = _mm_sub_ps(_mm_mul_ps(q.vector.x, vertex.y), _mm_mul_ps(q.vector.y, vertex.x));
 
-        Vertex4 _cross = vertex4_cross(_q.vector, _vertex);
-        __m128 _dot = _mm_add_ps(_mm_add_ps(_mm_mul_ps(_vertex.x, _q.vector.x), _mm_mul_ps(_vertex.y, _q.vector.y)),
-                _mm_mul_ps(_vertex.z, _q.vector.z));
-        Vertex4 _scaled = vertex4_scale(_vertex, _q.w);
+        __m128 _dot = _mm_add_ps(_mm_add_ps(_mm_mul_ps(vertex.x, q.vector.x), _mm_mul_ps(vertex.y, q.vector.y)),
+                _mm_mul_ps(vertex.z, q.vector.z));
 
-        Quaternion4 _tmp;
-        _tmp.w = _mm_mul_ps(_mm_set1_ps(-1.0f), _dot);
-        _tmp.vector = vertex4_add(_cross, _scaled);
+        __m128 _scaled_x = _mm_mul_ps(vertex.x, q.w);
+        __m128 _scaled_y = _mm_mul_ps(vertex.y, q.w);
+        __m128 _scaled_z = _mm_mul_ps(vertex.z, q.w);
 
-        Quaternion4 _conj;
-        _conj.w = _q.w;
-        _conj.vector = vertex4_scale(_q.vector, _mm_set1_ps(-1.0f));
 
-        Vertex4 _tmp2 = vertex4_add(vertex4_scale(_conj.vector, _tmp.w), 
-                                    vertex4_scale(_tmp.vector, _conj.w));
+        __m128 _tmp_w = _mm_mul_ps(_mm_set1_ps(-1.0f), _dot);
+        __m128 _tmp_x = _mm_add_ps(_cross_x, _scaled_x);
+        __m128 _tmp_y = _mm_add_ps(_cross_y, _scaled_y);
+        __m128 _tmp_z = _mm_add_ps(_cross_z, _scaled_z);
 
-        Vertex4 _tmp_cross = vertex4_cross(_tmp.vector, _conj.vector);
 
-        result = vertex4_add(_tmp2, _tmp_cross);
+        __m128 _conj_w = q.w;
+        __m128 _conj_x = _mm_mul_ps(_mm_set1_ps(-1.0f), q.vector.x);
+        __m128 _conj_y = _mm_mul_ps(_mm_set1_ps(-1.0f), q.vector.y);
+        __m128 _conj_z = _mm_mul_ps(_mm_set1_ps(-1.0f), q.vector.z);
+
+        __m128 _tmp2_x = _mm_add_ps(_mm_mul_ps(_tmp_w, _conj_x), _mm_mul_ps(_conj_w, _tmp_x));
+        __m128 _tmp2_y = _mm_add_ps(_mm_mul_ps(_tmp_w, _conj_y), _mm_mul_ps(_conj_w, _tmp_y));
+        __m128 _tmp2_z = _mm_add_ps(_mm_mul_ps(_tmp_w, _conj_z), _mm_mul_ps(_conj_w, _tmp_z));
+
+        __m128 _tmp_cross_x = _mm_sub_ps(_mm_mul_ps(_tmp_y, _conj_z), _mm_mul_ps(_tmp_z, _conj_y));
+        __m128 _tmp_cross_y = _mm_sub_ps(_mm_mul_ps(_tmp_z, _conj_x), _mm_mul_ps(_tmp_x, _conj_z));
+        __m128 _tmp_cross_z = _mm_sub_ps(_mm_mul_ps(_tmp_x, _conj_y), _mm_mul_ps(_tmp_y, _conj_x));
+
+        result.x = _mm_add_ps(_tmp_cross_x, _tmp2_x);
+        result.y = _mm_add_ps(_tmp_cross_y, _tmp2_y);
+        result.z = _mm_add_ps(_tmp_cross_z, _tmp2_z);
+
         return result;
 }
 
@@ -120,8 +145,7 @@ static bool v3_should_clip(V3 pos, GameCamera *camera, float aspect_ratio) {
 
 static V3 compute_light_intensity(LightSource source, V3 vertex, V3 normal) {
     V3 dl = source.position-vertex; 
-    float intensity = (v3_dot(v3_norm(dl), v3_norm(normal))) /
-                      (0.00005f*v3_mag(dl));
+    float intensity = v3_dot(v3_norm(dl), v3_norm(normal));
     if (intensity > 0) {
         return intensity*source.color;
     }
@@ -160,26 +184,26 @@ static void renderer_transform_light_and_cull(RendererState *render_state,
         __m128 _cam_y = _mm_set1_ps(camera->pos.y);
         __m128 _cam_z = _mm_set1_ps(camera->pos.z);
 
-        Quaternion4 _q4 = {};
-        _q4.w = _mm_set1_ps(rotation.scalar);
-        _q4.vector.x = _mm_set1_ps(rotation.vector.x);
-        _q4.vector.y = _mm_set1_ps(rotation.vector.y);
-        _q4.vector.z = _mm_set1_ps(rotation.vector.z);
+        Quaternion4 q4 = {};
+        q4.w = _mm_set1_ps(rotation.scalar);
+        q4.vector.x = _mm_set1_ps(rotation.vector.x);
+        q4.vector.y = _mm_set1_ps(rotation.vector.y);
+        q4.vector.z = _mm_set1_ps(rotation.vector.z);
 
         for (uint32_t vertex = 0; vertex < render_state->vertex_count; ++vertex) {
-            Vertex4 _v4 = render_state->vertex_buffer[vertex];
+            Vertex4 v4 = render_state->vertex_buffer[vertex];
             // translate position in world relative to camera
-            _v4.x = _mm_sub_ps(_v4.x, _cam_x);
-            _v4.y = _mm_sub_ps(_v4.y, _cam_y);
-            _v4.z = _mm_sub_ps(_v4.z, _cam_z);
+            v4.x = _mm_sub_ps(v4.x, _cam_x);
+            v4.y = _mm_sub_ps(v4.y, _cam_y);
+            v4.z = _mm_sub_ps(v4.z, _cam_z);
 
             //rotate world relative to camera
-            render_state->vertex_buffer[vertex] = vertex4_rotate(_v4, _q4);
+            render_state->vertex_buffer[vertex] = vertex4_rotate(v4, q4);
         }
 
         for (uint32_t normal = 0; normal < render_state->normal_count; ++normal) {
-            Vertex4 _n4 = render_state->normal_buffer[normal];
-            render_state->normal_buffer[normal] = vertex4_rotate(_n4, _q4);
+            Vertex4 n4 = render_state->normal_buffer[normal];
+            render_state->normal_buffer[normal] = vertex4_rotate(n4, q4);
         }
 
     }
@@ -204,11 +228,6 @@ static void renderer_transform_light_and_cull(RendererState *render_state,
 
 #if SHADING
     // gourad shading
-    for (uint32_t light = 0; light < render_state->light_sources_count; ++light) {
-        LightSource source = render_state->light_sources[light];
-        source.position = renderer_world_vertex_to_view(source.position, camera);
-    }
-
     for (uint32_t triangle = 0; triangle < render_state->draw_count; ++triangle) {
         Triangle current = render_state->polygons_to_draw[triangle];
 
@@ -241,11 +260,11 @@ static void renderer_transform_light_and_cull(RendererState *render_state,
         assert(v3_color.z >= 0);
 
         V3 vn1 = triangle_get_attribute_from_buffer(current.vn1, 
-                                                    render_state->normal_buffer);
+                                                    render_state->vertex_buffer);
         V3 vn2 = triangle_get_attribute_from_buffer(current.vn2, 
-                                                    render_state->normal_buffer);
+                                                    render_state->vertex_buffer);
         V3 vn3 = triangle_get_attribute_from_buffer(current.vn3, 
-                                                    render_state->normal_buffer);
+                                                    render_state->vertex_buffer);
 
         // ambient light
         V3 v1_light = {};
@@ -254,6 +273,8 @@ static void renderer_transform_light_and_cull(RendererState *render_state,
 
         for (uint32_t light = 0; light < render_state->light_sources_count; ++light) {
             LightSource source = render_state->light_sources[light];
+            source.position = renderer_world_vertex_to_view(source.position, 
+                                                            camera);
 
             v1_light += compute_light_intensity(source, vertex1, vn1);
             v2_light += compute_light_intensity(source, vertex2, vn2);
@@ -486,6 +507,7 @@ static void renderer_draw_triangles_filled(OffscreenBuffer *buffer,
                                            OffscreenBuffer *zbuffer,
                                            OffscreenBuffer *postbuffer,
                                            Vertex4 *vertices,
+                                           Vertex4 *normals,
                                            Vertex4 *colors,
                                            Triangle *triangles,
                                            int count) {
@@ -499,6 +521,14 @@ static void renderer_draw_triangles_filled(OffscreenBuffer *buffer,
             V3 vert1 = triangle_get_attribute_from_buffer(triangles[i].v1, vertices);
             V3 vert2 = triangle_get_attribute_from_buffer(triangles[i].v2, vertices);
             V3 vert3 = triangle_get_attribute_from_buffer(triangles[i].v3, vertices);
+
+            V3 normal1 = triangle_get_attribute_from_buffer(triangles[i].vn1, vertices);
+            V3 normal2 = triangle_get_attribute_from_buffer(triangles[i].vn2, vertices);
+            V3 normal3 = triangle_get_attribute_from_buffer(triangles[i].vn3, vertices);
+            
+            renderer_draw_line(buffer, zbuffer, vert1, v3(vert1.x+normal1.x, vert1.y+normal1.y, 0.1f), v3(1,0,0), v3(1,0,0));
+            renderer_draw_line(buffer, zbuffer, vert2, v3(vert2.x+normal2.x, vert2.y+normal2.y, 0.1f), v3(0,1,0), v3(0,1,0));
+            renderer_draw_line(buffer, zbuffer, vert3, v3(vert3.x+normal3.x, vert3.y+normal3.y, 0.1f), v3(0,0,1), v3(0,0,1));
 
             V3 v1_color = triangle_get_attribute_from_buffer(triangles[i].v1, colors);
             V3 v2_color = triangle_get_attribute_from_buffer(triangles[i].v2, colors);
@@ -966,6 +996,7 @@ static void renderer_draw(RendererState *render_state,
     renderer_transform_light_and_cull(render_state, camera, buffer->width, buffer->height);
     renderer_draw_triangles_filled(buffer, zbuffer, postbuffer, 
                                    render_state->vertex_buffer, 
+                                   render_state->normal_buffer,
                                    render_state->vertex_colors, 
                                    render_state->polygons_to_draw, 
                                    render_state->draw_count);
