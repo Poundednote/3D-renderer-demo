@@ -207,7 +207,7 @@ static Quaternion operator*(Quaternion a, V3 b) {
     return result;
 }
 
-static Quaternion conj(Quaternion a) {
+static Quaternion q4_conj(Quaternion a) {
     Quaternion result; 
 
     result.scalar = a.scalar;
@@ -230,7 +230,7 @@ static Quaternion q4_norm(Quaternion a) {
 static V3 v3_rotate_on_axis(V3 axis, float theta, V3 vec) {
     Quaternion result;
     Quaternion rotation = q4_norm(q4(cosf(theta/2), sinf(theta/2)*axis));
-    result = (rotation*vec*conj(rotation));
+    result = (rotation*vec*q4_conj(rotation));
     return result.vector;
 }
 
@@ -245,6 +245,13 @@ static inline V3 v3_rotate_q4(V3 vec, Quaternion q) {
 
 static inline float f_lerp(float delta_x, float lerp_factor, float y0, float y1) {
     return y0 + (lerp_factor)*((y1-y0)/(delta_x));
+}
+
+static inline __m128 vertex4_dot(Vertex4 _a, Vertex4 _b) {
+    __m128 result;
+    result = _mm_add_ps(_mm_add_ps(_mm_mul_ps(_a.x, _b.x), _mm_mul_ps(_a.y, _b.y)),
+                        _mm_mul_ps(_a.z, _b.z));
+    return result;
 }
 
 static inline Vertex4 vertex4_cross(Vertex4 _a, Vertex4 _b) {

@@ -43,6 +43,8 @@ struct Triangle {
     int vn1;
     int vn2;
     int vn3;
+
+    V3 color;
 };
 
 struct Mesh {
@@ -79,7 +81,6 @@ struct LightSource {
 struct RendererState {
     uint32_t vertex_count;
     Vertex4 vertex_buffer[65536*25];
-    Vertex4 vertex_colors[65536*25];
 
     uint32_t normal_count;
     Vertex4 normal_buffer[65536*25];
@@ -92,4 +93,7 @@ struct RendererState {
 
     uint32_t light_sources_count;
     LightSource light_sources[255];
+    V3 light_positions[255];
+    float light_radii[255];
+    V3 light_colors[255];
 };

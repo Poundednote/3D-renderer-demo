@@ -13,8 +13,8 @@
 
 static V3 renderer_world_vertex_to_view(V3 world_pos, GameCamera *camera) {
     V3 result = v3_rotate_q4(world_pos-camera->pos, 
-                          (rotation_q4(-camera->theta_x, v3(1,0,0))*
-                          rotation_q4(-camera->theta_y, v3(0,1,0))));
+                             (rotation_q4(-camera->theta_x, v3(1,0,0))*
+                             rotation_q4(-camera->theta_y, v3(0,1,0))));
 
     return result;
 }
@@ -24,8 +24,8 @@ static inline V3 renderer_view_vertex_to_screen(V3 view_pos, OffscreenBuffer *bu
     float aspect_ratio = (float)buffer->width / (float)buffer->height;
     float length_x = tanf(camera->fov/2.0f)*camera->znear*aspect_ratio;
     float length_y = tanf(camera->fov/2.0f)*camera->znear;
-    float normal_x = (view_pos.x * (camera->znear / view_pos.z)) / length_x;
-    float normal_y = (view_pos.y * (camera->znear / view_pos.z)) / length_y;
+    float normal_x = ((view_pos.x*camera->znear) / view_pos.z*length_x);
+    float normal_y = ((view_pos.y*camera->znear) / view_pos.z*length_y);
 
     float x = floorf((normal_x * (buffer->width/2.0f)) + buffer->width/2.0f);
     float y = floorf((normal_y * (buffer->height/2.0f)) + buffer->height/2.0f);
@@ -36,8 +36,7 @@ static Vertex4 vertex4_rotate(Vertex4 _vertex, Quaternion4 _q) {
         Vertex4 result = {};
 
         Vertex4 _cross = vertex4_cross(_q.vector, _vertex);
-        __m128 _dot = _mm_add_ps(_mm_add_ps(_mm_mul_ps(_vertex.x, _q.vector.x), _mm_mul_ps(_vertex.y, _q.vector.y)),
-                _mm_mul_ps(_vertex.z, _q.vector.z));
+        __m128 _dot = vertex4_dot(_vertex, _q.vector);
         Vertex4 _scaled = vertex4_scale(_vertex, _q.w);
 
         Quaternion4 _tmp;
@@ -96,8 +95,6 @@ static void vertex4_view_to_screen(Vertex4 *buffer,
 
         __m128 _float_res_x = _mm_add_ps(_mm_mul_ps(_normal_x, _buffer_x), _buffer_x);
         __m128 _float_res_y = _mm_add_ps(_mm_mul_ps(_mm_mul_ps(_normal_y, _mm_set1_ps(-1.0f)), _buffer_y), _buffer_y);
-        _float_res_x = _mm_cvtepi32_ps(_mm_cvttps_epi32(_float_res_x));
-        _float_res_y = _mm_cvtepi32_ps(_mm_cvttps_epi32(_float_res_y));
 
         buffer[i].x = _mm_or_ps(_float_res_x, _mask);
         buffer[i].y = _mm_or_ps(_float_res_y, _mask);
@@ -118,21 +115,22 @@ static bool v3_should_clip(V3 pos, GameCamera *camera, float aspect_ratio) {
     return false;
 }
 
-static V3 compute_light_intensity(LightSource source, V3 vertex, V3 normal) {
-    V3 dl = source.position-vertex; 
+static inline V3 compute_light_intensity(V3 light_position, V3 light_color, V3 vertex, V3 normal) {
+    V3 dl = light_position-vertex; 
     float intensity = (v3_dot(v3_norm(dl), v3_norm(normal))) /
-                      (0.00005f*v3_mag(dl));
+                      (0.0002f*v3_mag(dl));
     if (intensity > 0) {
-        return intensity*source.color;
+        return intensity*light_color;
     }
-    return source.color = {};
+    return light_color = {};
 }
 
 static inline float rgb_to_luminance(V3 rgb) {
     return v3_dot(rgb, v3(0.2126f, 0.7152f, 0.0722f));
 }
 
-static inline V3 triangle_get_attribute_from_buffer(int index, Vertex4 *buffer) {
+static inline V3 triangle_get_attribute_from_buffer(uint32_t index, Vertex4 *buffer, uint32_t buffer_size) {
+        assert(index/4 < buffer_size);
         V3 result = v3(((float *)&buffer[index/4].x)[index%4],
                       ((float *)&buffer[index/4].y)[index%4],
                       ((float *)&buffer[index/4].z)[index%4]);
@@ -154,7 +152,7 @@ static void renderer_transform_light_and_cull(RendererState *render_state,
     // transform vertices to view space
     { 
         Quaternion rotation = rotation_q4(-camera->theta_x, v3(1,0,0))*
-            rotation_q4(-camera->theta_y, v3(0,1,0));
+                              rotation_q4(-camera->theta_y, v3(0,1,0));
 
         __m128 _cam_x = _mm_set1_ps(camera->pos.x);
         __m128 _cam_y = _mm_set1_ps(camera->pos.y);
@@ -167,141 +165,62 @@ static void renderer_transform_light_and_cull(RendererState *render_state,
         _q4.vector.z = _mm_set1_ps(rotation.vector.z);
 
         for (uint32_t vertex = 0; vertex < render_state->vertex_count; ++vertex) {
-            Vertex4 _v4 = render_state->vertex_buffer[vertex];
+            Vertex4 *_v4 = &render_state->vertex_buffer[vertex];
             // translate position in world relative to camera
-            _v4.x = _mm_sub_ps(_v4.x, _cam_x);
-            _v4.y = _mm_sub_ps(_v4.y, _cam_y);
-            _v4.z = _mm_sub_ps(_v4.z, _cam_z);
+            _v4->x = _mm_sub_ps(_v4->x, _cam_x);
+            _v4->y = _mm_sub_ps(_v4->y, _cam_y);
+            _v4->z = _mm_sub_ps(_v4->z, _cam_z);
 
             //rotate world relative to camera
-            render_state->vertex_buffer[vertex] = vertex4_rotate(_v4, _q4);
+            *_v4 = vertex4_rotate(*_v4, _q4);
         }
+#if 1
 
         for (uint32_t normal = 0; normal < render_state->normal_count; ++normal) {
-            Vertex4 _n4 = render_state->normal_buffer[normal];
-            render_state->normal_buffer[normal] = vertex4_rotate(_n4, _q4);
-        }
-
-    }
-
-    // Backface culling
-    for (uint32_t triangle = 0; triangle < render_state->polygon_count; ++triangle) {
-        Triangle current = render_state->polygons[triangle];
-        V3 vert1 = triangle_get_attribute_from_buffer(current.v1, render_state->vertex_buffer);
-        V3 vert2 = triangle_get_attribute_from_buffer(current.v2, render_state->vertex_buffer);
-        V3 vert3 = triangle_get_attribute_from_buffer(current.v3, render_state->vertex_buffer);
-        V3 normal = triangle_get_attribute_from_buffer(current.vn1, render_state->normal_buffer);
-
-
-#if 1
-        if (v3_dot(vert1, v3_norm(normal)) >= 0) {
-            continue;
+            Vertex4 *_n4 = &render_state->normal_buffer[normal];
+            *_n4 = vertex4_rotate(*_n4, _q4);
         }
 #endif
 
-        render_state->polygons_to_draw[render_state->draw_count++] = current;
-    }
+    //
+    // change light sources to be 100 times the brightness for post processing
+        for (uint32_t i = 0; i < render_state->light_sources_count; ++i) {
+            LightSource light_source = render_state->light_sources[i]; 
+            render_state->light_colors[i] = light_source.color;
 
-#if SHADING
-    // gourad shading
-    for (uint32_t light = 0; light < render_state->light_sources_count; ++light) {
-        LightSource source = render_state->light_sources[light];
-        source.position = renderer_world_vertex_to_view(source.position, camera);
-    }
+            V3 acutal = renderer_world_vertex_to_view(light_source.position, camera);
+            render_state->light_positions[i] = acutal;
 
-    for (uint32_t triangle = 0; triangle < render_state->draw_count; ++triangle) {
-        Triangle current = render_state->polygons_to_draw[triangle];
-
-        V3 vertex1 = triangle_get_attribute_from_buffer(current.v1, 
-                                                        render_state->vertex_buffer);
-        V3 vertex2 = triangle_get_attribute_from_buffer(current.v2, 
-                                                        render_state->vertex_buffer);
-        V3 vertex3 = triangle_get_attribute_from_buffer(current.v3, 
-                                                        render_state->vertex_buffer);
-
-        V3 v1_color = triangle_get_attribute_from_buffer(current.v1, 
-                                                         render_state->vertex_colors);
-
-        V3 v2_color = triangle_get_attribute_from_buffer(current.v2, 
-                                                         render_state->vertex_colors);
-
-        V3 v3_color = triangle_get_attribute_from_buffer(current.v3, 
-                                                         render_state->vertex_colors);
-
-        assert(v1_color.x >= 0);
-        assert(v1_color.y >= 0);
-        assert(v1_color.z >= 0);
-
-        assert(v2_color.x >= 0);
-        assert(v2_color.y >= 0);
-        assert(v2_color.z >= 0);
-
-        assert(v3_color.x >= 0);
-        assert(v3_color.y >= 0);
-        assert(v3_color.z >= 0);
-
-        V3 vn1 = triangle_get_attribute_from_buffer(current.vn1, 
-                                                    render_state->normal_buffer);
-        V3 vn2 = triangle_get_attribute_from_buffer(current.vn2, 
-                                                    render_state->normal_buffer);
-        V3 vn3 = triangle_get_attribute_from_buffer(current.vn3, 
-                                                    render_state->normal_buffer);
-
-        // ambient light
-        V3 v1_light = {};
-        V3 v2_light = {};
-        V3 v3_light = {};
-
-        for (uint32_t light = 0; light < render_state->light_sources_count; ++light) {
-            LightSource source = render_state->light_sources[light];
-
-            v1_light += compute_light_intensity(source, vertex1, vn1);
-            v2_light += compute_light_intensity(source, vertex2, vn2);
-            v3_light += compute_light_intensity(source, vertex3, vn3);
-        }
-
-        v1_color = v3_pairwise_mul(v1_color, v1_light);
-        v2_color = v3_pairwise_mul(v2_color, v2_light);
-        v3_color = v3_pairwise_mul(v3_color, v3_light);
-
-        triangle_set_attribute_to_buffer(v1_color, 
-                                         current.v1, 
-                                         render_state->vertex_colors);
-        triangle_set_attribute_to_buffer(v2_color, 
-                                         current.v2, 
-                                         render_state->vertex_colors);
-        triangle_set_attribute_to_buffer(v3_color, 
-                                         current.v3, 
-                                         render_state->vertex_colors);
-    }
-#endif // SHADING
-
-    // change light sources to just be the original color
-    for (uint32_t i = 0; i < render_state->light_sources_count; ++i) {
-        LightSource light_source = render_state->light_sources[i]; 
-        for (uint32_t j = light_source.obj->vstart; j < light_source.obj->vend; j++) {
-            Vertex4 _vertex = render_state->vertex_buffer[j];
-            Vertex4 _color = render_state->vertex_colors[j];
-
-            _color.x = _mm_add_ps(_mm_set1_ps(light_source.color.x), _mm_set1_ps(100));
-            _color.y = _mm_add_ps(_mm_set1_ps(light_source.color.y), _mm_set1_ps(100));
-            _color.z = _mm_add_ps(_mm_set1_ps(light_source.color.z), _mm_set1_ps(100));
-
-            render_state->vertex_colors[j] = _color;
+            for (uint32_t j = light_source.obj->index_start; j < light_source.obj->index_end; ++j) {
+                Triangle *polygon = &render_state->polygons[j];
+                polygon->color = v3(100,100,100)+polygon->color;
+            }
         }
     }
 
+    // backface culling
+    for (uint32_t triangle = 0; triangle < render_state->polygon_count; ++triangle) {
+        Triangle current = render_state->polygons[triangle];
+        V3 vertex1 = triangle_get_attribute_from_buffer(current.v1, render_state->vertex_buffer, 
+                                                       render_state->vertex_count);
+        V3 vertex2 = triangle_get_attribute_from_buffer(current.v2, render_state->vertex_buffer, 
+                                                       render_state->vertex_count);
+        V3 vertex3 = triangle_get_attribute_from_buffer(current.v3, render_state->vertex_buffer, 
+                                                       render_state->vertex_count);
+
+#if 1
+        if (v3_dot(vertex1, v3_cross(vertex2-vertex1, vertex3-vertex1)) >= 0) {
+            continue;
+        }
+#endif
+            render_state->polygons_to_draw[render_state->draw_count++] = current;
+    }
 
     // perspective projection & clipping
     vertex4_view_to_screen(render_state->vertex_buffer, 
                            camera, 
                            buffer_width, buffer_height, 
                            render_state->vertex_count);
-
-    vertex4_view_to_screen(render_state->normal_buffer, 
-                           camera, 
-                           buffer_width, buffer_height, 
-                           render_state->normal_count);
 }
 
 
@@ -340,120 +259,6 @@ static void clamp_to_screen(V3 *vertex, int buffer_width, int buffer_height) {
         vertex->y = (float)(buffer_height - 1);
     }
 }
-static void renderer_draw_line(OffscreenBuffer *buffer,
-                               OffscreenBuffer *zbuffer,
-                               V3 start,
-                               V3 end,
-                               V3 start_color,
-                               V3 end_color) {
-
-
-    clamp_to_screen(&start, buffer->width, buffer->height);
-    clamp_to_screen(&end, buffer->width, buffer->height);
-    if (start.x > end.x) {
-        v3_swap(&start, &end);
-    }
-
-    float dx = (float)(end.x - start.x);
-    float dy = (float)(end.y - start.y);
-    //
-    // case where the gradient is below 1;
-
-    float step = 0;
-    if (fabsf(dx) > fabsf(dy)) {
-        step = (float)fabsf(dx);
-    }
-
-    else {
-        step = (float)fabsf(dy);
-    }
-
-    /* I am using the padding byte in the windows bitmap buffer to seperate 
-     * the bright objects for post processing all bright pixels go through the draw line call
-     * with a color of > 1 this has to be then corrected and then return either 0xFF or 0 for 
-     * bright and not bright respectively
-     */
-    uint8_t bright = 0x0;
-    if (end_color.x > 1 && end_color.y > 1 && end_color.z > 1) {
-        bright = 0xFF;
-        start_color -= v3(1,1,1);
-        end_color -= v3(1,1,1);
-    }
-
-    V3 color_inc = (end_color - start_color) / step;
-    V3 start_inc = (end-start)/step;
-
-    for (int draw = 0; draw <= step; ++draw) {
-        int offset = (int)(roundf(start.x-0.5f))*buffer->bytes_per_pixel + 
-                     (int)(roundf(start.y-0.5f))*buffer->pitch;
-        float *depth_value = (float *)((uint8_t *)zbuffer->memory + offset);
-    
-           if ((start.z < *depth_value)) {
-               uint32_t color = (bright << 24) |
-                                (((uint8_t)(0xFF*start_color.x)) << 16) | 
-                                (((uint8_t)(0xFF*start_color.y))) << 8 | 
-                                (uint8_t)(0xFF*start_color.z);
-
-                uint32_t *pixel = (uint32_t *)((uint8_t *)buffer->memory + offset);
-                *pixel = color;
-                *depth_value = start.z;
-        }
-
-        start += start_inc;
-        start_color += color_inc;
-    }
-}
-
-static void renderer_draw_flat_top_triangle(OffscreenBuffer *buffer,
-                                            OffscreenBuffer *zbuffer,
-                                            V3 left,
-                                            V3 right,
-                                            V3 bottom,
-                                            V3 left_color,
-                                            V3 right_color,
-                                            V3 bottom_color) {
-        
-    float dy = (float)(bottom.y - right.y);
-    V3 right_inc = v3((bottom.x-right.x)/dy, 1, -(bottom.z-right.z)/dy);
-    V3 left_inc = v3((bottom.x-left.x)/dy, 1, -(bottom.z-left.z)/dy);
-    V3 left_color_inc = (bottom_color - left_color)/dy;
-    V3 right_color_inc = (bottom_color - right_color)/dy;
-
-    for (int y = 0; y <= fabsf(dy); ++y) {
-        renderer_draw_line(buffer, zbuffer, left, right, left_color, right_color);
-
-        left += left_inc;
-        right += right_inc;
-        left_color += left_color_inc;
-        right_color += right_color_inc;
-    }
-}
-
-static void renderer_draw_flat_bottom_triangle(OffscreenBuffer *buffer,
-                                               OffscreenBuffer *zbuffer,
-                                               V3 left,
-                                               V3 right,
-                                               V3 top,
-                                               V3 left_color,
-                                               V3 right_color,
-                                               V3 top_color) {
-
-    float dy = (float)(top.y - right.y);
-
-    V3 left_inc = v3((top.x-left.x)/dy, 1, (top.z-left.z)/dy);
-    V3 right_inc = v3((top.x-right.x)/dy, 1, (top.z-right.z)/dy);
-    V3 right_color_inc = (top_color - right_color)/dy;
-    V3 left_color_inc = (top_color - left_color)/dy;
-
-    for (int y = 0; y <= fabsf(dy); ++y) {
-        renderer_draw_line(buffer, zbuffer, left, right, left_color, right_color);
-
-        left -= left_inc;
-        right -= right_inc;
-        left_color -= left_color_inc;
-        right_color -= right_color_inc;
-    }
-}
 
 static void tone_map_color(V3 *color, V3 white_point) {
     float luminance = rgb_to_luminance(*color);
@@ -470,71 +275,213 @@ static void color_correct_brightness(V3 *color, V3 white_point) {
         if (color->x > 100 && 
             color->y > 100 && 
             color->z > 100) {
-
             *color -= v3(100,100,100);
-            *color = 100*(*color);
+            *color = 100.0f*(*color);
             tone_map_color(color, white_point);
             *color += v3(1,1,1);
         }
+}
 
-        else {
-            tone_map_color(color, white_point);
+static inline uint32_t convert_v3_to_RGB(V3 vector) {
+    uint32_t result = (((uint8_t)(0xFF*vector.x)) << 16) | 
+                      (((uint8_t)(0xFF*vector.y))) << 8 | 
+                      (uint8_t)(0xFF*vector.z);
+    return result;
+}
+
+static void renderer_draw_line(OffscreenBuffer *buffer,
+                               OffscreenBuffer *zbuffer,
+                               OffscreenBuffer *normal_buffer,
+                               V3 start,
+                               V3 end,
+                               V3 start_normal,
+                               V3 end_normal,
+                               V3 color) {
+
+
+    clamp_to_screen(&start, buffer->width, buffer->height);
+    clamp_to_screen(&end, buffer->width, buffer->height);
+    if (start.x > end.x) {
+        v3_swap(&start, &end);
+        v3_swap(&start_normal, &end_normal);
+    }
+
+    float dx = (floorf(end.x) - floorf(start.x));
+    float dy = (floorf(end.y) - floorf(start.y));
+    //
+    // case where the gradient is below 1;
+
+    float step = 0;
+    if (fabsf(dx) > fabsf(dy)) {
+        step = (float)fabsf(dx);
+    }
+
+    else {
+        step = (float)fabsf(dy);
+    }
+
+    if (step == 0) {return;};
+    uint8_t bright = 0x0;
+    if (color.x > 1 && color.y > 1 && color.z > 1) {
+        bright = 0x01;
+        color -= v3(1,1,1);
+    }
+
+    /* I am using the padding byte in the windows bitmap buffer to seperate 
+     * the bright objects for post processing all bright pixels go through the draw line call
+     * with a color of > 1 this has to be then corrected and then return either 0xFF or 0 for 
+     * bright and not bright respectively
+     */
+
+    V3 normal_inc = (end_normal - start_normal) / step;
+    V3 start_inc = (end-start)/step;
+
+    for (int draw = 0; draw <= step; ++draw) {
+        int offset = (int)(floorf(start.x))*buffer->bytes_per_pixel + 
+            (int)(floorf(start.y))*buffer->pitch;
+        float *depth_value = (float *)((uint8_t *)zbuffer->memory + offset);
+
+        if ((start.z < *depth_value)) {
+            uint32_t pixel_color = convert_v3_to_RGB(color);
+            pixel_color = ((bright) << 24) | pixel_color;
+
+            // normalise between 0 and 1
+            //
+            V3 normalised = v3_norm(start_normal);
+            normalised.x = roundf((start_normal.x*0.5f+0.5f)*65535.0f);
+            normalised.y = roundf((start_normal.y*0.5f+0.5f)*65535.0f);
+            uint32_t normal_value = (((uint16_t)(normalised.x)) << 16) | 
+                                    (((uint16_t)(normalised.y)));
+
+
+            uint32_t *pixel = (uint32_t *)((uint8_t *)buffer->memory + offset);
+            uint32_t *normal = (uint32_t *)((uint8_t *)normal_buffer->memory + offset);
+
+            *pixel = pixel_color;
+            *normal = normal_value;
+            *depth_value = start.z;
         }
+
+        start += start_inc;
+        start_normal += normal_inc;
+    }
+}
+
+static void renderer_draw_flat_top_triangle(OffscreenBuffer *buffer,
+                                            OffscreenBuffer *zbuffer,
+                                            OffscreenBuffer *normal_buffer,
+                                            V3 left,
+                                            V3 right,
+                                            V3 bottom,
+                                            V3 left_normal,
+                                            V3 right_normal,
+                                            V3 bottom_normal,
+                                            V3 color) {
+        
+    float dy = floorf(bottom.y)-floorf(right.y);
+
+    V3 right_inc = v3((bottom.x-right.x)/dy, 1, -(bottom.z-right.z)/dy);
+    V3 left_inc = v3((bottom.x-left.x)/dy, 1, -(bottom.z-left.z)/dy);
+    V3 left_normal_inc = (bottom_normal - left_normal)/dy;
+    V3 right_normal_inc = (bottom_normal - right_normal)/dy;
+
+    for (int y = 0; y <= fabsf(dy); ++y) {
+        renderer_draw_line(buffer, zbuffer, normal_buffer, left, right, 
+                           left_normal, right_normal, color);
+
+        left += left_inc;
+        right += right_inc;
+        left_normal += left_normal_inc;
+        right_normal += right_normal_inc;
+    }
+}
+
+static void renderer_draw_flat_bottom_triangle(OffscreenBuffer *buffer,
+                                               OffscreenBuffer *zbuffer,
+                                               OffscreenBuffer *normal_buffer,
+                                               V3 left,
+                                               V3 right,
+                                               V3 top,
+                                               V3 left_normal,
+                                               V3 right_normal,
+                                               V3 top_normal,
+                                               V3 color) {
+
+    float dy = floorf(top.y)-floorf(right.y);
+
+    V3 left_inc = v3((top.x-left.x)/dy, 1, (top.z-left.z)/dy);
+    V3 right_inc = v3((top.x-right.x)/dy, 1, (top.z-right.z)/dy);
+    V3 right_normal_inc = (top_normal - right_normal)/dy;
+    V3 left_normal_inc = (top_normal - left_normal)/dy;
+
+    for (int y = 0; y <= fabsf(dy); ++y) {
+        renderer_draw_line(buffer, zbuffer, normal_buffer, left, right, 
+                           left_normal, right_normal, color);
+
+        left -= left_inc;
+        right -= right_inc;
+        left_normal -= left_normal_inc;
+        right_normal -= right_normal_inc;
+    }
 }
 
 static void renderer_draw_triangles_filled(OffscreenBuffer *buffer,
                                            OffscreenBuffer *zbuffer,
+                                           OffscreenBuffer *normal_buffer,
                                            OffscreenBuffer *postbuffer,
-                                           Vertex4 *vertices,
-                                           Vertex4 *colors,
-                                           Triangle *triangles,
-                                           int count) {
+                                           GameCamera *camera,
+                                           RendererState *render_state) {
 
+    V3 white_point = v3(100,100,100);
     // Draw Triangles
     {
-        V3 white_point = v3(100,100,100);
-        for (int i = 0; i < count; ++i) {
+        Triangle *triangles = render_state->polygons_to_draw;
+        Vertex4 *vertices = render_state->vertex_buffer;
+        Vertex4 *normals = render_state->normal_buffer;
 
+        for (uint32_t i = 0; i < render_state->draw_count; ++i) {
 
-            V3 vert1 = triangle_get_attribute_from_buffer(triangles[i].v1, vertices);
-            V3 vert2 = triangle_get_attribute_from_buffer(triangles[i].v2, vertices);
-            V3 vert3 = triangle_get_attribute_from_buffer(triangles[i].v3, vertices);
+            V3 vert1 = triangle_get_attribute_from_buffer(triangles[i].v1, vertices, render_state->vertex_count);
+            V3 vert2 = triangle_get_attribute_from_buffer(triangles[i].v2, vertices, render_state->vertex_count);
+            V3 vert3 = triangle_get_attribute_from_buffer(triangles[i].v3, vertices, render_state->vertex_count);
 
-            V3 v1_color = triangle_get_attribute_from_buffer(triangles[i].v1, colors);
-            V3 v2_color = triangle_get_attribute_from_buffer(triangles[i].v2, colors);
-            V3 v3_color = triangle_get_attribute_from_buffer(triangles[i].v3, colors);
+            V3 normal1 = triangle_get_attribute_from_buffer(triangles[i].vn1, normals, render_state->normal_count);
+            V3 normal2 = triangle_get_attribute_from_buffer(triangles[i].vn2, normals, render_state->normal_count);
+            V3 normal3 = triangle_get_attribute_from_buffer(triangles[i].vn3, normals, render_state->normal_count);
+
+            V3 color = triangles[i].color;
+            color_correct_brightness(&color, white_point);
 
             if (renderer_v3_isclipped(vert1)) {continue;}
             if (renderer_v3_isclipped(vert2)) {continue;}
             if (renderer_v3_isclipped(vert3)) {continue;}
 
-            color_correct_brightness(&v1_color, white_point);
-            color_correct_brightness(&v2_color, white_point);
-            color_correct_brightness(&v3_color, white_point);
 
             //sort vertexes v3 is the biggest
             if (vert3.y > vert2.y) {
                 v3_swap(&vert3, &vert2);
-                v3_swap(&v3_color, &v2_color);
+                v3_swap(&normal3, &normal2);
 
             }
 
             if (vert2.y > vert1.y) {
                 v3_swap(&vert2, &vert1);
-                v3_swap(&v2_color, &v1_color);
+                v3_swap(&normal2, &normal1);
             }
 
             if (vert3.y > vert2.y) {
                 v3_swap(&vert3, &vert2);
-                v3_swap(&v3_color, &v2_color);
+                v3_swap(&normal3, &normal2);
             }
 
             if (vert3.y == vert2.y) {
                 if (vert3.x > vert2.x) {
-                    renderer_draw_flat_top_triangle(buffer, zbuffer, vert2, vert3, vert1, v2_color, v3_color, v1_color);
+                    renderer_draw_flat_top_triangle(buffer, zbuffer, normal_buffer, vert2, vert3, vert1, 
+                                                    normal2, normal3, normal1, color);
                 }
                 else {
-                    renderer_draw_flat_top_triangle(buffer, zbuffer, vert3, vert2, vert1, v3_color, v2_color, v1_color);
+                    renderer_draw_flat_top_triangle(buffer, zbuffer, normal_buffer, vert3, vert2, vert1, 
+                                                    normal3, normal2, normal1, color);
                 }
 
                 continue;
@@ -542,10 +489,12 @@ static void renderer_draw_triangles_filled(OffscreenBuffer *buffer,
 
             if (vert1.y == vert2.y) {
                 if (vert1.x > vert2.x) {
-                    renderer_draw_flat_bottom_triangle(buffer, zbuffer, vert2, vert1, vert3, v2_color, v1_color, v3_color);
+                    renderer_draw_flat_bottom_triangle(buffer, zbuffer, normal_buffer, vert2, vert1, vert3, 
+                                                       normal2, normal1, normal3, color);
                 }
                 else {
-                    renderer_draw_flat_bottom_triangle(buffer, zbuffer, vert1, vert2, vert3, v1_color, v2_color, v3_color);
+                    renderer_draw_flat_bottom_triangle(buffer, zbuffer, normal_buffer, vert1, vert2, vert3, 
+                                                       normal1, normal2, normal3, color);
                 }
                 continue;
             }
@@ -558,18 +507,84 @@ static void renderer_draw_triangles_filled(OffscreenBuffer *buffer,
             vert4.y = vert2.y;
             vert4.z = f_lerp(delta_x, lerp_factor, vert1.z, vert3.z);
 
-            V3 v4_color = v3_lerp(delta_x, lerp_factor, v1_color, v3_color);
+            V3 normal4 = v3_lerp(delta_x, lerp_factor, normal1, normal3);
 
             if (vert4.x > vert2.x) {
-                renderer_draw_flat_top_triangle(buffer, zbuffer, vert2, vert4, vert1, v2_color, v4_color, v1_color);
-                renderer_draw_flat_bottom_triangle(buffer, zbuffer, vert2, vert4, vert3, v2_color, v4_color, v3_color);
+                renderer_draw_flat_top_triangle(buffer, zbuffer, normal_buffer, vert2, vert4, vert1, 
+                                                normal2, normal4, normal1, color);
+                renderer_draw_flat_bottom_triangle(buffer, zbuffer, normal_buffer, vert2, vert4, vert3, 
+                                                   normal2, normal4, normal3, color);
             }
+
             else {
-                renderer_draw_flat_top_triangle(buffer, zbuffer, vert4, vert2, vert1, v4_color, v2_color, v1_color);
-                renderer_draw_flat_bottom_triangle(buffer, zbuffer, vert4, vert2, vert3, v4_color, v2_color, v3_color);
+                renderer_draw_flat_top_triangle(buffer, zbuffer, normal_buffer, vert4, vert2, vert1, 
+                                                normal4, normal2, normal1, color);
+
+                renderer_draw_flat_bottom_triangle(buffer, zbuffer, normal_buffer, vert4, vert2, vert3, 
+                                                   normal4, normal2, normal3, color);
             }
         }
     }
+
+    // Lighting Pass
+#if 1
+    {
+        uint32_t *colors = (uint32_t *)buffer->memory;
+        uint32_t *normals = (uint32_t *)normal_buffer->memory;
+        float *depth = (float *)zbuffer->memory;
+        V3 *light_positions = render_state->light_positions;
+        V3 *light_colors = render_state->light_colors;
+
+        for (int pixel = 0; pixel < buffer->width*buffer->height; ++pixel) {
+            if (colors[pixel] & 0x01000000) {
+                continue;
+            }
+
+            if (depth[pixel] == FLT_MAX) {
+                continue;
+            }
+
+            V3 extracted_norm = {};
+            extracted_norm.x = (((uint16_t)((normals[pixel] & 0xFFFF0000) >> 16)/65535.0f)*2) - 1;
+            extracted_norm.y = (((uint16_t)(normals[pixel] & 0x0000FFFF)/65535.0f)*2) - 1;
+            extracted_norm.z = -sqrtf(1 - (extracted_norm.x*extracted_norm.x + extracted_norm.y*extracted_norm.y));
+
+            V3 extracted_pos = v3((float)(pixel%1280), (float)(pixel/1280), depth[pixel]);
+            // convert back to view space using depth
+            {
+                float aspect_ratio = (float)buffer->width / (float)buffer->height;
+                float length_x = tanf(camera->fov/2.0f)*camera->znear*aspect_ratio;
+                float length_y = tanf(camera->fov/2.0f)*camera->znear;
+
+                extracted_pos.x = (extracted_pos.x - buffer->width/2.0f) / (buffer->width/2.0f);
+                extracted_pos.y = (extracted_pos.y - buffer->height/2.0f) / (buffer->height/2.0f);
+                extracted_pos.y *= -1.0f; 
+
+                extracted_pos.x = (extracted_pos.x*length_x)/((camera->znear)/(extracted_pos.z));
+                extracted_pos.y = (extracted_pos.y*length_y)/((camera->znear)/(extracted_pos.z));
+                //extracted_pos.y = (extracted_pos.x*(length_y*extracted_pos.z))/ (camera->znear);
+            }
+
+            V3 extracted_color = v3(((colors[pixel] & 0x00FF0000) >> 16)/255.0f,
+                                   ((colors[pixel] & 0x0000FF00) >> 8)/255.0f,
+                                   (colors[pixel] & 0x000000FF)/255.0f);
+            V3 color = {};
+           
+            for (uint32_t light = 0; light < render_state->light_sources_count; ++light) {
+                color += compute_light_intensity(light_positions[light], light_colors[light], 
+                                                 extracted_pos, extracted_norm);
+            }
+            color = v3_pairwise_mul(color, extracted_color);
+            tone_map_color(&color, white_point);
+            colors[pixel] = convert_v3_to_RGB(color);
+            extracted_norm.x = ((extracted_norm.x*0.5f+0.5f));
+            extracted_norm.y = ((extracted_norm.y*0.5f+0.5f));
+            extracted_norm.z = ((extracted_norm.z*0.5f+0.5f));
+            //colors[pixel] = convert_v3_to_RGB(extracted_norm);
+
+        }
+    }
+#endif
 
 #if 1
     // POST PROCESSING BLOOM EFFECT
@@ -605,7 +620,7 @@ static void renderer_draw_triangles_filled(OffscreenBuffer *buffer,
                     }
                 }
 
-                if (sumbright < 255) {
+                if (sumbright < 0x01) {
                     out_pixels[(y)*postbuffer->width+x] = 0;
                     continue;
                 }
@@ -783,10 +798,6 @@ static RenderObj renderer_render_obj_create(RendererState *render_state, Mesh *m
     uint32_t vertex_start = render_state->vertex_count;
     assert(mesh->vert_count % 4 == 0);
 
-    __m128 _color_r = _mm_set1_ps(color.x);
-    __m128 _color_g = _mm_set1_ps(color.y);
-    __m128 _color_b = _mm_set1_ps(color.z);
-
     for (uint32_t vert = 0; vert < mesh->vert_count; vert+=4) {
     assert(vert+3 < mesh->vert_count);
 
@@ -810,17 +821,14 @@ static RenderObj renderer_render_obj_create(RendererState *render_state, Mesh *m
         ((float * )&render_state->vertex_buffer[render_state->vertex_count].z)[2] = vert3.z; 
         ((float * )&render_state->vertex_buffer[render_state->vertex_count].z)[3] = vert4.z; 
 
-
-        render_state->vertex_colors[render_state->vertex_count].x = _color_r;
-        render_state->vertex_colors[render_state->vertex_count].y = _color_g;
-        render_state->vertex_colors[render_state->vertex_count].z = _color_b;
-
         ++render_state->vertex_count;
     }
 
 
     int normal_start = render_state->normal_count;
-    for (uint32_t normal = 0; normal < mesh->vertexn_count; ++normal) {
+    assert(mesh->vertexn_count % 4 == 0);
+    for (uint32_t normal = 0; normal < mesh->vertexn_count; normal+=4) {
+        assert(normal+3 < mesh->vertexn_count);
 
         V3 vert1 = mesh->vertexn[normal];
         V3 vert2 = mesh->vertexn[normal+1];
@@ -853,6 +861,7 @@ static RenderObj renderer_render_obj_create(RendererState *render_state, Mesh *m
         render_state->polygons[render_state->polygon_count].vn1 += normal_start*4;
         render_state->polygons[render_state->polygon_count].vn2 += normal_start*4;
         render_state->polygons[render_state->polygon_count].vn3 += normal_start*4;
+        render_state->polygons[render_state->polygon_count].color = color;
         render_state->polygon_count++;
     }
 
@@ -866,6 +875,7 @@ static RenderObj renderer_render_obj_create(RendererState *render_state, Mesh *m
     result.mesh = mesh;
     result.color = color;
     assert(render_state->vertex_count < arraysize(render_state->vertex_buffer));
+    assert(render_state->normal_count < arraysize(render_state->normal_buffer));
 
     return result;
 }
@@ -879,10 +889,8 @@ static void renderer_render_obj_update(RendererState *render_state,
 
     assert(render_state->vertex_count < arraysize(render_state->vertex_buffer));
     assert(obj->mesh->vert_count % 4 == 0);
+    assert(obj->mesh->vertexn_count % 4 == 0);
 
-    __m128 _color_r = _mm_set1_ps(obj->color.x);
-    __m128 _color_g = _mm_set1_ps(obj->color.y);
-    __m128 _color_b = _mm_set1_ps(obj->color.z);
     for (uint32_t vertex = 0; vertex < obj->mesh->vert_count; vertex+=4) {
         assert(vertex+3 < obj->mesh->vert_count);
         V3 vert1 = v3_rotate_q4(v3_pairwise_mul(scale,obj->mesh->vertices[vertex]), rotation); 
@@ -911,17 +919,15 @@ static void renderer_render_obj_update(RendererState *render_state,
         ((float * )&render_state->vertex_buffer[obj->vstart+vertex/4].z)[2] = vert3.z; 
         ((float * )&render_state->vertex_buffer[obj->vstart+vertex/4].z)[3] = vert4.z; 
         
-
-        render_state->vertex_colors[obj->vstart+vertex/4].x = _color_r;
-        render_state->vertex_colors[obj->vstart+vertex/4].y = _color_g;
-        render_state->vertex_colors[obj->vstart+vertex/4].z = _color_b;
     }
 
     for (uint32_t normal = 0; normal < obj->mesh->vertexn_count; normal+=4) {
-        V3 normal1 = obj->mesh->vertexn[normal+0];
-        V3 normal2 = obj->mesh->vertexn[normal+1];
-        V3 normal3 = obj->mesh->vertexn[normal+2];
-        V3 normal4 = obj->mesh->vertexn[normal+3];
+        assert(normal+3 < obj->mesh->vertexn_count);
+
+        V3 normal1 = v3_rotate_q4(obj->mesh->vertexn[normal], rotation);
+        V3 normal2 = v3_rotate_q4(obj->mesh->vertexn[normal+1], rotation);
+        V3 normal3 = v3_rotate_q4(obj->mesh->vertexn[normal+2], rotation);
+        V3 normal4 = v3_rotate_q4(obj->mesh->vertexn[normal+3], rotation);
 
         ((float * )&render_state->normal_buffer[obj->nstart+normal/4].x)[0] = normal1.x; 
         ((float * )&render_state->normal_buffer[obj->nstart+normal/4].x)[1] = normal2.x; 
@@ -937,6 +943,10 @@ static void renderer_render_obj_update(RendererState *render_state,
         ((float * )&render_state->normal_buffer[obj->nstart+normal/4].z)[1] = normal2.z; 
         ((float * )&render_state->normal_buffer[obj->nstart+normal/4].z)[2] = normal3.z; 
         ((float * )&render_state->normal_buffer[obj->nstart+normal/4].z)[3] = normal4.z; 
+    }
+
+    for (uint32_t polygon = 0; polygon < obj->mesh->poly_count; ++polygon) {
+        render_state->polygons[obj->index_start+polygon].color = obj->color;
     }
 }
 
@@ -957,16 +967,21 @@ static void destroy_render_obj(RendererState *render_state,
 }
 #endif
 
+static void renderer_light_source_create(RendererState *render_state, RenderObj *obj, V3 position, V3 color) {
+        render_state->light_sources[render_state->light_sources_count].position = position;
+        render_state->light_sources[render_state->light_sources_count].color = color;
+        render_state->light_sources[render_state->light_sources_count].obj = obj;
+        ++render_state->light_sources_count;
+}
+
+
 static void renderer_draw(RendererState *render_state, 
                           GameCamera *camera, 
                           OffscreenBuffer *buffer, 
                           OffscreenBuffer *zbuffer,
+                          OffscreenBuffer *normal_buffer,
                           OffscreenBuffer *postbuffer) {
 
     renderer_transform_light_and_cull(render_state, camera, buffer->width, buffer->height);
-    renderer_draw_triangles_filled(buffer, zbuffer, postbuffer, 
-                                   render_state->vertex_buffer, 
-                                   render_state->vertex_colors, 
-                                   render_state->polygons_to_draw, 
-                                   render_state->draw_count);
+    renderer_draw_triangles_filled(buffer, zbuffer, normal_buffer, postbuffer, camera, render_state);
 }

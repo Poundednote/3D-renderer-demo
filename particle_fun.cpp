@@ -22,13 +22,6 @@ static uint32_t parkmiller_rand(uint32_t *state) {
     return *state;
 }
 
-static void make_light_source(RendererState *render_state, RenderObj *obj, V3 position, V3 color) {
-        render_state->light_sources[render_state->light_sources_count].position = position;
-        render_state->light_sources[render_state->light_sources_count].color = color;
-        render_state->light_sources[render_state->light_sources_count].obj = obj;
-        ++render_state->light_sources_count;
-}
-
 inline static void string_inc_til_char(const char *string, char character, uint32_t *i) {
     for (;string[*i] != character; ++(*i)) {
         continue;
@@ -48,7 +41,7 @@ static void load_mesh_from_file_right(char *filename, Mesh *out) {
             if (string[i] == 'n') {
                 float x, y, z;
                 sscanf_s(string+(++i), "%f %f %f\n", &x, &y, &z); 
-                out->vertexn[out->vertexn_count++] = v3_norm((v3(x, y, -z)));
+                out->vertexn[out->vertexn_count++] = v3(x, y, -z);
             }
             else if (string[i] == 't') {
                 continue;
@@ -154,7 +147,7 @@ static void generate_chunk(ParticleSystem *particles,
 
 
     if (lighting) {
-        make_light_source(render_state,
+        renderer_light_source_create(render_state,
                 &particles->render_obj[light_source],
                 particles->pos[light_source],
                     v3(sun_r,sun_g,sun_b));
@@ -288,6 +281,15 @@ static void generate_world(GameState *state,
     int offset_z = state->render_distance;
     int offset_x = state->render_distance;
 
+    if (state->render_distance == 0) {
+            generate_chunk(&state->particles, 
+                           render_state, 10, 
+                           sphere_mesh, 
+                           state->current_chunk, 
+                           state->current_chunk,
+                           true);
+    }
+
     for (int z = -offset_z; z <= offset_z; ++z) {
         for (int x = -offset_x; x <= offset_x; ++x) {
             WorldChunk chunk = {};
@@ -306,6 +308,7 @@ static void generate_world(GameState *state,
 void game_update_and_render(GameMemory *memory, 
                             OffscreenBuffer *buffer, 
                             OffscreenBuffer *zbuffer,
+                            OffscreenBuffer *normal_buffer,
                             OffscreenBuffer *postfx_buffer,
                             GameInput *input) {
 
@@ -367,10 +370,21 @@ void game_update_and_render(GameMemory *memory,
     renderer_draw_background(buffer, 0); 
 
     //clear z buffer every frame
-    uint32_t zbuffer_size = zbuffer->width * zbuffer->height;
-    float *depth_value = ((float *)zbuffer->memory);
-    for (uint32_t i = 0; i < zbuffer_size; ++i) {
-        *depth_value++ = FLT_MAX;
+    {
+        uint32_t zbuffer_size = zbuffer->width * zbuffer->height;
+        float *depth_value = ((float *)zbuffer->memory);
+        for (uint32_t i = 0; i < zbuffer_size; ++i) {
+            *depth_value++ = FLT_MAX;
+        }
+    }
+
+    //clear normal buffer every frame
+    {
+        uint32_t normal_buffer_size = normal_buffer->width * normal_buffer->height;
+        float *normal_value = ((float *)normal_buffer->memory);
+        for (uint32_t i = 0; i < normal_buffer_size; ++i) {
+            *normal_value++ = 0;
+        }
     }
 
 
@@ -382,6 +396,7 @@ void game_update_and_render(GameMemory *memory,
         if (input->action) {
             state->move_speed *= 100;
             if (state->move_speed > 50000) {
+
                 state->move_speed = 0.05f;
             }
         }
@@ -484,7 +499,7 @@ void game_update_and_render(GameMemory *memory,
     for (int i = 0;i < state->particles.particle_count; i++) {
         renderer_render_obj_update(render_state, 
                                    &state->particles.render_obj[i], 
-                                   state->particles.mass[i]*v3(1,1,1), q4(1, v3(0,0,0)), 
+                                   state->particles.mass[i]*v3(1,1,1), q4_identity(),
                                    state->particles.pos[i]);
     }
 
@@ -495,7 +510,7 @@ void game_update_and_render(GameMemory *memory,
                                    0.1f*v3(1,
                                            (1/5.904f*(state->particles.pos[state->springs[i].p2_id].y-state->particles.pos[state->springs[i].p2_id].y)),
                                             1),
-                                     q4(1, v3(0,0,0)),
+                                     q4_identity(),
                                      v3(0,0,0));
 
     }
@@ -529,7 +544,7 @@ void game_update_and_render(GameMemory *memory,
        state->time += timestep;
     }
 
-    renderer_draw(render_state, &state->camera, buffer, zbuffer, postfx_buffer);
+    renderer_draw(render_state, &state->camera, buffer, zbuffer, normal_buffer, postfx_buffer);
 
 #if DEBUG_MODE
        state->frame_counter++;
