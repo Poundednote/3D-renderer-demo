@@ -143,7 +143,10 @@ static void generate_chunk(ParticleSystem *particles,
     float sun_r = (float)(parkmiller_rand(&seed) % 100) / 100;
     float sun_g = (float)(parkmiller_rand(&seed) % 100) / 100;
     float sun_b = (float)(parkmiller_rand(&seed) % 100) / 100;
-    particles->render_obj[particles->particle_count] = renderer_render_obj_create(render_state, mesh, v3(sun_r,sun_g,sun_b));
+    particles->render_obj[particles->particle_count] = renderer_render_obj_create(render_state, mesh, v3(sun_r,sun_g,sun_b),
+                                                                                  particles->mass[particles->particle_count]*v3(1,1,1), 
+                                                                                  q4_identity(),
+                                                                                  particles->pos[particles->particle_count]);
 
 
     if (lighting) {
@@ -183,9 +186,10 @@ static void generate_chunk(ParticleSystem *particles,
         float g = (float)(parkmiller_rand(&seed) % 100) / 100;
         float b = (float)(parkmiller_rand(&seed) % 100) / 100;
 
-        particles->render_obj[particles->particle_count] = renderer_render_obj_create(render_state, 
-                                                                                      mesh, 
-                                                                                      v3(1,1,1));
+        particles->render_obj[particles->particle_count] = renderer_render_obj_create(render_state, mesh, v3(1,1,1),
+                                                                                      particles->mass[particles->particle_count]*v3(1,1,1), 
+                                                                                      q4_identity(),
+                                                                                      particles->pos[particles->particle_count]);
         float mass = particles->mass[particles->particle_count];
         int parent_id = particles->id[particles->particle_count];
         ++particles->particle_count;
@@ -204,7 +208,10 @@ static void generate_chunk(ParticleSystem *particles,
                 particles->f_accumulator[particles->particle_count] = {};
                 particles->render_obj[particles->particle_count] = renderer_render_obj_create(render_state, 
                                                                                               mesh, 
-                                                                                              v3(1,1,1));
+                                                                                              v3(1,1,1),
+                                                                                              particles->mass[particles->particle_count]*v3(1,1,1),
+                                                                                              q4_identity(),
+                                                                                              particles->pos[particles->particle_count]);
                 ++particles->particle_count;
 
             }
@@ -226,7 +233,11 @@ static void create_side_by_side_particles(ParticleSystem *particles,
         particles->radius[particles->particle_count] = particles->mass[particles->particle_count];
         particles->pos[particles->particle_count] = ((float)i*pad)+start;
         particles->f_accumulator[particles->particle_count] = {};
-        particles->render_obj[particles->particle_count] = renderer_render_obj_create(render_state, mesh, v3(1.0f,1.0f,1.0f));
+        particles->render_obj[particles->particle_count] = 
+            renderer_render_obj_create(render_state, mesh, v3(1.0f,1.0f,1.0f),
+                                       particles->mass[particles->particle_count]*v3(1,1,1),
+                                       q4_identity(),
+                                       particles->pos[particles->particle_count]);
 
         particles->particle_count++;
     }
@@ -249,7 +260,11 @@ static int create_particle(ParticleSystem *particles,
     particles->pos[particles->particle_count] = position;
     particles->pos[particles->particle_count] += calculate_chunk_position_offset(current_chunk, chunk);
     particles->f_accumulator[particles->particle_count] = {};
-    particles->render_obj[particles->particle_count] = renderer_render_obj_create(render_state, mesh, v3(1,1,1));
+    particles->render_obj[particles->particle_count] = 
+        renderer_render_obj_create(render_state, mesh, v3(1.0f,1.0f,1.0f),
+                                   particles->mass[particles->particle_count]*v3(1,1,1),
+                                   q4_identity(),
+                                   particles->pos[particles->particle_count]);
     particles->particle_count++;
 
     return id;
@@ -315,6 +330,9 @@ void game_update_and_render(GameMemory *memory,
 
     GameState *state = (GameState *)memory->permanent_storage;
     RendererState *render_state = (RendererState *)memory->transient_storage;
+    int size_render = sizeof(RendererState);
+    int size_assets = sizeof(Assets);
+    assert((sizeof(RendererState)+sizeof(Assets)) < memory->transient_storage_size);
     Assets *assets = (Assets *)((char*)memory->transient_storage+sizeof(RendererState));
     Mesh *sphere_mesh = &assets->meshes[0];
     Mesh *spring_mesh = &assets->meshes[1];
@@ -342,14 +360,30 @@ void game_update_and_render(GameMemory *memory,
         state->particles.mass[spring->p1_id] = 1;
         state->particles.radius[spring->p1_id] = 1;
         state->particles.pos[spring->p1_id] = v3(0,-5,0);
-        state->particles.render_obj[spring->p1_id] = renderer_render_obj_create(render_state, sphere_mesh, v3(1,1,1));
+        state->particles.render_obj[spring->p1_id] = 
+            renderer_render_obj_create(render_state, sphere_mesh, v3(1,1,1),
+                                       state->particles.mass[spring->p1_id]*v3(1,1,1),
+                                       q4_identity(),
+                                       state->particles.pos[spring->p1_id]);
 
         state->particles.mass[spring->p2_id] = 1;
         state->particles.radius[spring->p2_id] = 1;
         state->particles.pos[spring->p2_id] = v3(0,0,0);
-        state->particles.render_obj[spring->p2_id] = renderer_render_obj_create(render_state, sphere_mesh, v3(1,1,1));
+        state->particles.render_obj[spring->p2_id] = 
+            renderer_render_obj_create(render_state, sphere_mesh, v3(1,1,1),
+                                       state->particles.mass[spring->p1_id]*v3(1,1,1),
+                                       q4_identity(),
+                                       state->particles.pos[spring->p1_id]);
         
-        spring->render_obj = renderer_render_obj_create(render_state, spring_mesh, v3(1,0,0));
+        spring->render_obj = 
+        renderer_render_obj_create(render_state, 
+                                   spring_mesh,
+                                   v3(1,1,1),
+                                   0.1f*v3(1,
+                                           (1/5.904f*(state->particles.pos[spring->p2_id].y-state->particles.pos[spring->p2_id].y)),
+                                            1),
+                                     q4_identity(),
+                                     v3(0,0,0));
         state->camera.pos.x = 0;
         state->camera.pos.y = 0;
         state->camera.pos.z = -20;
@@ -497,10 +531,12 @@ void game_update_and_render(GameMemory *memory,
 
     //draw particles
     for (int i = 0;i < state->particles.particle_count; i++) {
-        renderer_render_obj_update(render_state, 
+#if 1
+        renderer_render_obj_update(render_state,
                                    &state->particles.render_obj[i], 
                                    state->particles.mass[i]*v3(1,1,1), q4_identity(),
                                    state->particles.pos[i]);
+#endif
     }
 
     //draw_springs

@@ -81,15 +81,17 @@ struct LightSource {
 struct RendererState {
     uint32_t vertex_count;
     Vertex4 vertex_buffer[65536*25];
+    Vertex4 vertex_out_buffer[65536*25];
 
     uint32_t normal_count;
     Vertex4 normal_buffer[65536*25];
+    Vertex4 normal_out_buffer[65536*25];
 
     uint32_t polygon_count;
     Triangle polygons[65536*50];
 
     uint32_t draw_count;
-    Triangle polygons_to_draw[65536*30];
+    Triangle polygons_to_draw[65536*50];
 
     uint32_t light_sources_count;
     LightSource light_sources[255];

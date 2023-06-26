@@ -141,7 +141,7 @@ struct GameState {
 };
 
 struct Assets {
-    Mesh meshes[256];
+    Mesh meshes[32];
 };
 
 static void PlatformFreeFile(void *filebuffer);

@@ -1,5 +1,6 @@
 #include <math.h>
 #include <emmintrin.h>
+#include <xmmintrin.h>
 #ifndef PHYSICS_MATH_H
 
 #define FLT_MAX 3.402823466e+38F
@@ -247,10 +248,22 @@ static inline float f_lerp(float delta_x, float lerp_factor, float y0, float y1)
     return y0 + (lerp_factor)*((y1-y0)/(delta_x));
 }
 
-static inline __m128 vertex4_dot(Vertex4 _a, Vertex4 _b) {
-    __m128 result;
-    result = _mm_add_ps(_mm_add_ps(_mm_mul_ps(_a.x, _b.x), _mm_mul_ps(_a.y, _b.y)),
-                        _mm_mul_ps(_a.z, _b.z));
+
+static inline Vertex4 vertex4_scale(Vertex4 _a, __m128 _scalar) {
+    Vertex4 result;
+    result.x = _mm_mul_ps(_a.x, _scalar);
+    result.y = _mm_mul_ps(_a.y, _scalar);
+    result.z = _mm_mul_ps(_a.z, _scalar);
+
+    return result;
+}
+
+static inline Vertex4 vertex4_pairwise_mul(Vertex4 _a, Vertex4 _b) {
+    Vertex4 result;
+    result.x = _mm_mul_ps(_a.x, _b.x);
+    result.y = _mm_mul_ps(_a.y, _b.y);
+    result.z = _mm_mul_ps(_a.z, _b.z);
+
     return result;
 }
 
@@ -263,14 +276,20 @@ static inline Vertex4 vertex4_cross(Vertex4 _a, Vertex4 _b) {
 
 }
 
-static inline Vertex4 vertex4_scale(Vertex4 _a, __m128 _scalar) {
-    Vertex4 result;
-    result.x = _mm_mul_ps(_a.x, _scalar);
-    result.y = _mm_mul_ps(_a.y, _scalar);
-    result.z = _mm_mul_ps(_a.z, _scalar);
-
+static inline __m128 vertex4_dot(Vertex4 _a, Vertex4 _b) {
+    __m128 result;
+    result = _mm_add_ps(_mm_add_ps(_mm_mul_ps(_a.x, _b.x), _mm_mul_ps(_a.y, _b.y)),
+                        _mm_mul_ps(_a.z, _b.z));
     return result;
 }
+
+static inline Vertex4 vertex4_norm(Vertex4 _a) {
+    Vertex4 result;
+    __m128 _inv_magnitude = _mm_rsqrt_ps(vertex4_dot(_a, _a));
+    result = vertex4_scale(_a, _inv_magnitude);
+    return result;
+}
+
 
 static inline Vertex4 vertex4_add(Vertex4 _a, Vertex4 _b) {
     Vertex4 result;
@@ -278,6 +297,16 @@ static inline Vertex4 vertex4_add(Vertex4 _a, Vertex4 _b) {
     result.x = _mm_add_ps(_a.x, _b.x);
     result.y = _mm_add_ps(_a.y, _b.y);
     result.z = _mm_add_ps(_a.z, _b.z);
+
+    return result;
+}
+
+static inline Vertex4 vertex4_sub(Vertex4 _a, Vertex4 _b) {
+    Vertex4 result;
+
+    result.x = _mm_sub_ps(_a.x, _b.x);
+    result.y = _mm_sub_ps(_a.y, _b.y);
+    result.z = _mm_sub_ps(_a.z, _b.z);
 
     return result;
 }
