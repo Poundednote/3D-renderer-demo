@@ -1,4 +1,3 @@
-#include <emmintrin.h>
 #include <stdint.h>
 #include <xmmintrin.h>
 #include "renderer.h"
@@ -19,17 +18,58 @@ static V3 renderer_world_vertex_to_view(V3 world_pos, GameCamera *camera) {
     return result;
 }
 
-static inline V3 renderer_view_vertex_to_screen(V3 view_pos, OffscreenBuffer *buffer, GameCamera *camera) {
+static void set_v3_invalid(V3 *vertex) {
+    *(uint32_t *)&vertex->x = 0xFFFFFFFF;
+    *(uint32_t *)&vertex->y = 0xFFFFFFFF;
+}
 
-    float aspect_ratio = (float)buffer->width / (float)buffer->height;
+static inline bool v3_is_invalid(V3 a) {
+    if (*((uint32_t *)&a.x) == 0xFFFFFFFF || *((uint32_t *)&a.y) == 0xFFFFFFFF) return true;
+    return false;
+}
+
+
+static inline V3 renderer_view_vertex_to_screen(V3 view_pos, 
+                                                GameCamera *camera,
+                                                int buffer_width,
+                                                int buffer_height) {
+
+    V3 result = {};
+    if (v3_is_invalid(view_pos)) {
+        result = view_pos;
+        return result;
+    }
+    float aspect_ratio = (float)buffer_width / (float)buffer_height;
     float length_x = tanf(camera->fov/2.0f)*camera->znear*aspect_ratio;
     float length_y = tanf(camera->fov/2.0f)*camera->znear;
-    float normal_x = ((view_pos.x*camera->znear) / view_pos.z*length_x);
-    float normal_y = ((view_pos.y*camera->znear) / view_pos.z*length_y);
+    float normal_x = (view_pos.x*(camera->znear/view_pos.z))/length_x;
+    float normal_y = (view_pos.y*(camera->znear/view_pos.z))/length_y;
 
-    float x = floorf((normal_x * (buffer->width/2.0f)) + buffer->width/2.0f);
-    float y = floorf((normal_y * (buffer->height/2.0f)) + buffer->height/2.0f);
-    return v3(x, y, view_pos.z);
+    if (view_pos.z > camera->zfar) {
+        set_v3_invalid(&result);
+        return result;
+    }
+
+    if (view_pos.z < camera->znear) {
+        set_v3_invalid(&result);
+        return result;
+    }
+
+
+    if ((normal_x > 1) || (normal_x < -1)) {
+        set_v3_invalid(&result);
+        return result;
+    }
+
+    if ((normal_y > 1) || (normal_y < -1)) {
+        set_v3_invalid(&result);
+        return result;
+    }
+
+    result.x = (normal_x * (buffer_width/2.0f)) + buffer_width/2.0f;
+    result.y = (-normal_y * (buffer_height/2.0f)) + buffer_height/2.0f;
+    result.z = view_pos.z;
+    return result;
 }
 
 static Vertex4 vertex4_rotate(Vertex4 _vertex, Quaternion4 _q) {
@@ -78,10 +118,12 @@ static void vertex4_view_to_screen(Vertex4 *buffer,
         __m128 _mask = _mm_cmplt_ps(_vertex_z, _cam_znear);
         _mask = _mm_or_ps(_mask, _mm_cmpgt_ps(_vertex_z, _cam_zfar));
 
-        __m128 _normal_x = _mm_div_ps(_mm_mul_ps(_vertex_x, _mm_div_ps(_cam_znear, _vertex_z)),
+        __m128 _normal_x = _mm_div_ps(_mm_mul_ps(_vertex_x, 
+                                      _mm_div_ps(_cam_znear, _vertex_z)),
                 _length_x);
 
-        __m128 _normal_y = _mm_div_ps(_mm_mul_ps(_vertex_y, _mm_div_ps(_cam_znear, _vertex_z)),
+        __m128 _normal_y = _mm_div_ps(_mm_mul_ps(_vertex_y, 
+                                      _mm_div_ps(_cam_znear, _vertex_z)),
                 _length_y);
 
         _mask = _mm_or_ps(_mask, _mm_cmpgt_ps(_normal_x, _mm_set1_ps(1.0f)));
@@ -93,26 +135,17 @@ static void vertex4_view_to_screen(Vertex4 *buffer,
         __m128 _buffer_x = _mm_set1_ps(buffer_width/2.0f);
         __m128 _buffer_y = _mm_set1_ps(buffer_height/2.0f);
 
-        __m128 _float_res_x = _mm_add_ps(_mm_mul_ps(_normal_x, _buffer_x), _buffer_x);
-        __m128 _float_res_y = _mm_add_ps(_mm_mul_ps(_mm_mul_ps(_normal_y, _mm_set1_ps(-1.0f)), _buffer_y), _buffer_y);
+        __m128 _float_res_x = _mm_add_ps(_mm_mul_ps(_normal_x, _buffer_x), 
+                                         _buffer_x);
+        __m128 _float_res_y = _mm_add_ps(_mm_mul_ps(_mm_mul_ps(_normal_y, 
+                                                               _mm_set1_ps(-1.0f)), 
+                                                    _buffer_y), 
+                                         _buffer_y);
 
         buffer[i].x = _mm_or_ps(_float_res_x, _mask);
         buffer[i].y = _mm_or_ps(_float_res_y, _mask);
         buffer[i].z = _mm_or_ps(_vertex_z, _mask);
     }
-}
-
-static bool v3_should_clip(V3 pos, GameCamera *camera, float aspect_ratio) {
-    float max_x = tanf(camera->fov/2.0f)*camera->znear * (pos.z/camera->znear) * 
-        aspect_ratio;
-    float max_y = tanf(camera->fov/2.0f)*camera->znear * (pos.z/camera->znear);
-
-    if (pos.z <= camera->znear) return true;
-    if (pos.z > camera->zfar) return true;
-    if (fabs(pos.x) > max_x) return true;
-    if (fabs(pos.y) > max_y) return true;
-
-    return false;
 }
 
 static inline V3 compute_light_intensity(V3 light_position, V3 light_color, V3 vertex, V3 normal) {
@@ -129,7 +162,9 @@ static inline float rgb_to_luminance(V3 rgb) {
     return v3_dot(rgb, v3(0.2126f, 0.7152f, 0.0722f));
 }
 
-static inline V3 triangle_get_attribute_from_buffer(uint32_t index, Vertex4 *buffer, uint32_t buffer_size) {
+static inline V3 triangle_get_attribute_from_buffer(uint32_t index, 
+                                                    Vertex4 *buffer, 
+                                                    uint32_t buffer_size) {
         assert(index/4 < buffer_size);
         V3 result = v3(((float *)&buffer[index/4].x)[index%4],
                       ((float *)&buffer[index/4].y)[index%4],
@@ -138,22 +173,20 @@ static inline V3 triangle_get_attribute_from_buffer(uint32_t index, Vertex4 *buf
         return result;
 }
 
-static inline void triangle_set_attribute_to_buffer(V3 value, int index, Vertex4 *buffer) {
+static inline void triangle_set_attribute_to_buffer(V3 value, 
+                                                    int index, 
+                                                    Vertex4 *buffer) {
     ((float * )&buffer[index/4].x)[index%4] = value.x;
     ((float * )&buffer[index/4].y)[index%4] = value.y;
     ((float * )&buffer[index/4].z)[index%4] = value.z;
 }
 
-static void renderer_transform_light_and_cull(RendererState *render_state,
-                                              GameCamera *camera, 
-                                              int buffer_width, 
-                                              int buffer_height) {
+static void renderer_transform_and_cull(RendererState *render_state,
+                                        GameCamera *camera, 
+                                        int buffer_width, 
+                                        int buffer_height) {
 
-    // sample the radius of the light source at different x values to create a sphere to rder
-    {
-
-    }
-    render_state->draw_count = 0;
+    uint32_t samples = 12;
     // transform vertices to view space
     { 
         Quaternion rotation = rotation_q4(-camera->theta_x, v3(1,0,0))*
@@ -179,17 +212,43 @@ static void renderer_transform_light_and_cull(RendererState *render_state,
             //rotate world relative to camera
             *_out = vertex4_rotate(_v4, _q4);
         }
-#if 1
 
         for (uint32_t normal = 0; normal < render_state->normal_count; ++normal) {
             Vertex4 *_n4 = &render_state->normal_buffer[normal];
             Vertex4 *_out = &render_state->normal_out_buffer[normal];
             *_out = vertex4_rotate(*_n4, _q4);
         }
-#endif
 
-    //
+    // sample the radius of the light sources at different x values to create a sphere
+    // to then render to screen
+
+        for (uint32_t light = 0; light < render_state->light_sources_count; ++light) {
+            LightSource source = render_state->light_sources[light];
+            source.position = renderer_world_vertex_to_view(source.position, camera);
+            float circle_z = source.position.z-400;
+            float min_intesity = 0.001f;
+            float radius = 1/(min_intesity*source.attenuation);
+            render_state->light_vertices[light*samples*2] = source.position;
+            render_state->light_vertices[light*samples*2+1] = 
+                v3(source.position.x-radius, source.position.y, source.position.z);
+
+            render_state->light_vertices[light*samples*2+samples+1] = 
+                v3(source.position.x-radius, source.position.y, source.position.z);
+
+            for (uint32_t x = 0; x < samples; ++x) {
+                float circle_x = f_lerp((float)samples, (float)(x+1), 
+                                        source.position.x-radius, 
+                                        source.position.x+radius);
+                float circle_y =  
+                    sqrtf((radius*radius) - (circle_x-source.position.x)*
+                                          (circle_x-source.position.x));
+                render_state->light_vertices[light*(samples*2)+x+1] = v3(circle_x, source.position.y+circle_y, circle_z);
+                render_state->light_vertices[light*(samples*2)+x+samples+1] = 
+                    v3(circle_x, source.position.y-circle_y, circle_z);
+            }
+        }
     }
+    render_state->draw_count = 0;
 
     // backface culling
     for (uint32_t triangle = 0; triangle < render_state->polygon_count; ++triangle) {
@@ -203,35 +262,44 @@ static void renderer_transform_light_and_cull(RendererState *render_state,
 
 #if 1
         if (v3_dot(vertex1, v3_cross(vertex2-vertex1, vertex3-vertex1)) >= 0) {
+            current.v1 = 0xFFFFFFFF;
+            current.v2 = 0xFFFFFFFF;
+            current.v3 = 0xFFFFFFFF;
         }
 #endif
             render_state->polygons_to_draw[triangle] = current;
     }
 
     // change light sources to be 100 times the brightness for post processing
-        for (uint32_t i = 0; i < render_state->light_sources_count; ++i) {
-            LightSource light_source = render_state->light_sources[i]; 
-            render_state->light_colors[i] = light_source.color;
-            render_state->light_positions[i] = renderer_world_vertex_to_view(light_source.position, camera);
+    for (uint32_t i = 0; i < render_state->light_sources_count; ++i) {
+        LightSource light_source = render_state->light_sources[i]; 
+        render_state->light_colors[i] = light_source.color;
+        render_state->light_positions[i] = renderer_world_vertex_to_view(light_source.position, camera);
 
 
-            for (uint32_t j = light_source.obj->index_start; j < light_source.obj->index_end; ++j) {
-                Triangle *polygon = &render_state->polygons_to_draw[j];
-                polygon->color = v3(100,100,100)+polygon->color;
-            }
+        for (uint32_t j = light_source.obj->index_start; j < light_source.obj->index_end; ++j) {
+            Triangle *polygon = &render_state->polygons_to_draw[j];
+            polygon->color = v3(100,100,100)+polygon->color;
         }
+    }
+
+    // transform light volume vertices to screen
+    for (uint32_t i = 0; i < render_state->light_sources_count*samples*2; ++i) {
+        V3 *position = &render_state->light_vertices[i];
+        *position = renderer_view_vertex_to_screen(*position, 
+                                                   camera,
+                                                   buffer_width,
+                                                   buffer_height);
+    }
+
+
 
     // perspective projection & clipping
     vertex4_view_to_screen(render_state->vertex_out_buffer, 
                            camera, 
                            buffer_width, buffer_height, 
                            render_state->vertex_count);
-}
 
-
-static inline bool renderer_v3_isclipped(V3 screen) {
-    if (*((uint32_t *)&screen.x) == 0xFFFFFFFF || *((uint32_t *)&screen.y) == 0xFFFFFFFF) return true;
-    return false;
 }
 
 static void renderer_draw_background(OffscreenBuffer *buffer, uint32_t color) {
@@ -305,7 +373,8 @@ static void renderer_draw_line(OffscreenBuffer *buffer,
                                V3 end,
                                V3 start_normal,
                                V3 end_normal,
-                               V3 color) {
+                               V3 color,
+                               uint8_t light_volume_byte) {
 
 
     clamp_to_screen(&start, buffer->width, buffer->height);
@@ -349,10 +418,17 @@ static void renderer_draw_line(OffscreenBuffer *buffer,
         int offset = (int)(floorf(start.x))*buffer->bytes_per_pixel + 
             (int)(floorf(start.y))*buffer->pitch;
         float *depth_value = (float *)((uint8_t *)zbuffer->memory + offset);
+        uint32_t *pixel = (uint32_t *)((uint8_t *)buffer->memory + offset);
+        uint32_t *normal = (uint32_t *)((uint8_t *)normal_buffer->memory + offset);
+
+        if (light_volume_byte & (0b01111111)) {
+            *pixel = 0xFFFFFFFF;
+            continue;
+       }
 
         if ((start.z < *depth_value)) {
             uint32_t pixel_color = convert_v3_to_RGB(color);
-            pixel_color = ((bright) << 24) | pixel_color;
+            pixel_color = ((bright) << 31) | pixel_color;
 
             // normalise between 0 and 1
             //
@@ -363,8 +439,6 @@ static void renderer_draw_line(OffscreenBuffer *buffer,
                                     (((uint16_t)(normalised.y)));
 
 
-            uint32_t *pixel = (uint32_t *)((uint8_t *)buffer->memory + offset);
-            uint32_t *normal = (uint32_t *)((uint8_t *)normal_buffer->memory + offset);
 
             *pixel = pixel_color;
             *normal = normal_value;
@@ -385,7 +459,8 @@ static void renderer_draw_flat_top_triangle(OffscreenBuffer *buffer,
                                             V3 left_normal,
                                             V3 right_normal,
                                             V3 bottom_normal,
-                                            V3 color) {
+                                            V3 color,
+                                            uint8_t light_volume_byte) {
         
     float dy = floorf(bottom.y)-floorf(right.y);
 
@@ -396,7 +471,7 @@ static void renderer_draw_flat_top_triangle(OffscreenBuffer *buffer,
 
     for (int y = 0; y <= fabsf(dy); ++y) {
         renderer_draw_line(buffer, zbuffer, normal_buffer, left, right, 
-                           left_normal, right_normal, color);
+                           left_normal, right_normal, color, light_volume_byte);
 
         left += left_inc;
         right += right_inc;
@@ -414,7 +489,8 @@ static void renderer_draw_flat_bottom_triangle(OffscreenBuffer *buffer,
                                                V3 left_normal,
                                                V3 right_normal,
                                                V3 top_normal,
-                                               V3 color) {
+                                               V3 color,
+                                               uint8_t light_volume_byte) {
 
     float dy = floorf(top.y)-floorf(right.y);
 
@@ -425,7 +501,7 @@ static void renderer_draw_flat_bottom_triangle(OffscreenBuffer *buffer,
 
     for (int y = 0; y <= fabsf(dy); ++y) {
         renderer_draw_line(buffer, zbuffer, normal_buffer, left, right, 
-                           left_normal, right_normal, color);
+                           left_normal, right_normal, color, light_volume_byte);
 
         left -= left_inc;
         right -= right_inc;
@@ -434,6 +510,89 @@ static void renderer_draw_flat_bottom_triangle(OffscreenBuffer *buffer,
     }
 }
 
+static void draw_triangle(OffscreenBuffer *buffer, 
+                          OffscreenBuffer *zbuffer, 
+                          OffscreenBuffer *normal_buffer, 
+                          V3 vert1,
+                          V3 vert2,
+                          V3 vert3,
+                          V3 normal1,
+                          V3 normal2,
+                          V3 normal3,
+                          V3 color,
+                          uint8_t light_volume_byte) {
+
+    if (v3_is_invalid(vert1)) {return;}
+    if (v3_is_invalid(vert2)) {return;}
+    if (v3_is_invalid(vert3)) {return;}
+
+    //sort vertexes v3 is the biggest
+    if (vert3.y > vert2.y) {
+        v3_swap(&vert3, &vert2);
+        v3_swap(&normal3, &normal2);
+
+    }
+
+    if (vert2.y > vert1.y) {
+        v3_swap(&vert2, &vert1);
+        v3_swap(&normal2, &normal1);
+    }
+
+    if (vert3.y > vert2.y) {
+        v3_swap(&vert3, &vert2);
+        v3_swap(&normal3, &normal2);
+    }
+
+    if (vert3.y == vert2.y) {
+        if (vert3.x > vert2.x) {
+            renderer_draw_flat_top_triangle(buffer, zbuffer, normal_buffer, vert2, vert3, vert1, 
+                    normal2, normal3, normal1, color, light_volume_byte);
+        }
+        else {
+            renderer_draw_flat_top_triangle(buffer, zbuffer, normal_buffer, vert3, vert2, vert1, 
+                    normal3, normal2, normal1, color, light_volume_byte);
+        }
+
+        return;
+    }
+
+    if (vert1.y == vert2.y) {
+        if (vert1.x > vert2.x) {
+            renderer_draw_flat_bottom_triangle(buffer, zbuffer, normal_buffer, vert2, vert1, vert3, 
+                    normal2, normal1, normal3, color, light_volume_byte);
+        }
+        else {
+            renderer_draw_flat_bottom_triangle(buffer, zbuffer, normal_buffer, vert1, vert2, vert3, 
+                    normal1, normal2, normal3, color, light_volume_byte);
+        }
+        return;
+    }
+
+    float lerp_factor = vert2.y-vert1.y;
+    float delta_x = vert3.y-vert1.y;
+
+    V3 vert4;
+    vert4.x = f_lerp(delta_x, lerp_factor, vert1.x, vert3.x);
+    vert4.y = vert2.y;
+    vert4.z = f_lerp(delta_x, lerp_factor, vert1.z, vert3.z);
+
+    V3 normal4 = v3_lerp(delta_x, lerp_factor, normal1, normal3);
+
+    if (vert4.x > vert2.x) {
+        renderer_draw_flat_top_triangle(buffer, zbuffer, normal_buffer, vert2, vert4, vert1, 
+                normal2, normal4, normal1, color, light_volume_byte);
+        renderer_draw_flat_bottom_triangle(buffer, zbuffer, normal_buffer, vert2, vert4, vert3, 
+                normal2, normal4, normal3, color, light_volume_byte);
+    }
+
+    else {
+        renderer_draw_flat_top_triangle(buffer, zbuffer, normal_buffer, vert4, vert2, vert1, 
+                normal4, normal2, normal1, color, light_volume_byte);
+
+        renderer_draw_flat_bottom_triangle(buffer, zbuffer, normal_buffer, vert4, vert2, vert3, 
+                normal4, normal2, normal3, color, light_volume_byte);
+    }
+}
 static void renderer_draw_triangles(OffscreenBuffer *buffer,
                                     OffscreenBuffer *zbuffer,
                                     OffscreenBuffer *normal_buffer,
@@ -444,11 +603,16 @@ static void renderer_draw_triangles(OffscreenBuffer *buffer,
     V3 white_point = v3(100,100,100);
     // Draw Triangles
     {
+
+
         Triangle *triangles = render_state->polygons_to_draw;
         Vertex4 *vertices = render_state->vertex_out_buffer;
         Vertex4 *normals = render_state->normal_out_buffer;
 
         for (uint32_t i = 0; i < render_state->polygon_count; ++i) {
+            if (triangles[i].v1 == 0xFFFFFFFF) {
+                continue;
+            }
 
             V3 vert1 = triangle_get_attribute_from_buffer(triangles[i].v1, vertices, render_state->vertex_count);
             V3 vert2 = triangle_get_attribute_from_buffer(triangles[i].v2, vertices, render_state->vertex_count);
@@ -460,78 +624,39 @@ static void renderer_draw_triangles(OffscreenBuffer *buffer,
 
             V3 color = triangles[i].color;
             color_correct_brightness(&color, white_point);
+            draw_triangle(buffer, zbuffer, normal_buffer, 
+                          vert1, vert2, vert3, 
+                          normal1, normal2, normal3, 
+                          color, 0);
+        }
 
-            if (renderer_v3_isclipped(vert1)) {continue;}
-            if (renderer_v3_isclipped(vert2)) {continue;}
-            if (renderer_v3_isclipped(vert3)) {continue;}
-
-
-            //sort vertexes v3 is the biggest
-            if (vert3.y > vert2.y) {
-                v3_swap(&vert3, &vert2);
-                v3_swap(&normal3, &normal2);
-
+    }
+    
+    // draw light volumes
+    {
+        uint32_t samples = 12;
+        for (uint32_t i = 0; i < render_state->light_sources_count; ++i) {
+            V3 center = render_state->light_vertices[(i*samples*2)];
+            V3 previous_vertex = render_state->light_vertices[(i*samples*2)+1];
+            for (uint32_t j = 1; j < samples*2; ++j) {
+                V3 current_vertex = render_state->light_vertices[(i*samples*2)+j+1];
+                draw_triangle(buffer, 
+                              zbuffer, 
+                              normal_buffer, 
+                              center, previous_vertex, current_vertex, 
+                              v3_zero(), v3_zero(), v3_zero(), v3(1,1,1), 
+                              (uint8_t)i+1);
+                previous_vertex = current_vertex;
             }
+            draw_triangle(buffer,
+                         zbuffer,
+                         normal_buffer,
+                         center, 
+                         render_state->light_vertices[(i*samples*2)+1],
+                         render_state->light_vertices[(i*samples*2)+(samples*2-1)],
+                         v3_zero(), v3_zero(), v3_zero(), v3(1,1,1),
+                         (uint8_t)i+1);
 
-            if (vert2.y > vert1.y) {
-                v3_swap(&vert2, &vert1);
-                v3_swap(&normal2, &normal1);
-            }
-
-            if (vert3.y > vert2.y) {
-                v3_swap(&vert3, &vert2);
-                v3_swap(&normal3, &normal2);
-            }
-
-            if (vert3.y == vert2.y) {
-                if (vert3.x > vert2.x) {
-                    renderer_draw_flat_top_triangle(buffer, zbuffer, normal_buffer, vert2, vert3, vert1, 
-                                                    normal2, normal3, normal1, color);
-                }
-                else {
-                    renderer_draw_flat_top_triangle(buffer, zbuffer, normal_buffer, vert3, vert2, vert1, 
-                                                    normal3, normal2, normal1, color);
-                }
-
-                continue;
-            }
-
-            if (vert1.y == vert2.y) {
-                if (vert1.x > vert2.x) {
-                    renderer_draw_flat_bottom_triangle(buffer, zbuffer, normal_buffer, vert2, vert1, vert3, 
-                                                       normal2, normal1, normal3, color);
-                }
-                else {
-                    renderer_draw_flat_bottom_triangle(buffer, zbuffer, normal_buffer, vert1, vert2, vert3, 
-                                                       normal1, normal2, normal3, color);
-                }
-                continue;
-            }
-
-            float lerp_factor = vert2.y-vert1.y;
-            float delta_x = vert3.y-vert1.y;
-
-            V3 vert4;
-            vert4.x = f_lerp(delta_x, lerp_factor, vert1.x, vert3.x);
-            vert4.y = vert2.y;
-            vert4.z = f_lerp(delta_x, lerp_factor, vert1.z, vert3.z);
-
-            V3 normal4 = v3_lerp(delta_x, lerp_factor, normal1, normal3);
-
-            if (vert4.x > vert2.x) {
-                renderer_draw_flat_top_triangle(buffer, zbuffer, normal_buffer, vert2, vert4, vert1, 
-                                                normal2, normal4, normal1, color);
-                renderer_draw_flat_bottom_triangle(buffer, zbuffer, normal_buffer, vert2, vert4, vert3, 
-                                                   normal2, normal4, normal3, color);
-            }
-
-            else {
-                renderer_draw_flat_top_triangle(buffer, zbuffer, normal_buffer, vert4, vert2, vert1, 
-                                                normal4, normal2, normal1, color);
-
-                renderer_draw_flat_bottom_triangle(buffer, zbuffer, normal_buffer, vert4, vert2, vert3, 
-                                                   normal4, normal2, normal3, color);
-            }
         }
     }
 
@@ -545,7 +670,7 @@ static void renderer_draw_triangles(OffscreenBuffer *buffer,
         V3 *light_colors = render_state->light_colors;
 
         for (int pixel = 0; pixel < buffer->width*buffer->height; pixel+=4) {
-            if (colors[pixel] & 0x01000000) {
+            if (colors[pixel] & (1 << 31)) {
                 continue;
             }
 
@@ -693,7 +818,7 @@ static void renderer_draw_triangles(OffscreenBuffer *buffer,
                     }
                 }
 
-                if (sumbright < 0x01) {
+                if (sumbright < (1 << 8)) {
                     out_pixels[(y)*postbuffer->width+x] = 0;
                     continue;
                 }
@@ -1047,9 +1172,10 @@ static void destroy_render_obj(RendererState *render_state,
 }
 #endif
 
-static void renderer_light_source_create(RendererState *render_state, RenderObj *obj, V3 position, V3 color) {
+static void renderer_render_obj_make_light_source(RendererState *render_state, RenderObj *obj, V3 position, V3 color, float attenuation) {
         render_state->light_sources[render_state->light_sources_count].position = position;
         render_state->light_sources[render_state->light_sources_count].color = color;
+        render_state->light_sources[render_state->light_sources_count].attenuation = attenuation;
         render_state->light_sources[render_state->light_sources_count].obj = obj;
         ++render_state->light_sources_count;
 }
@@ -1062,6 +1188,6 @@ static void renderer_draw(RendererState *render_state,
                           OffscreenBuffer *normal_buffer,
                           OffscreenBuffer *postbuffer) {
 
-    renderer_transform_light_and_cull(render_state, camera, buffer->width, buffer->height);
+    renderer_transform_and_cull(render_state, camera, buffer->width, buffer->height);
     renderer_draw_triangles(buffer, zbuffer, normal_buffer, postbuffer, camera, render_state);
 }

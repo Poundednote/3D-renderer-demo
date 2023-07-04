@@ -150,10 +150,11 @@ static void generate_chunk(ParticleSystem *particles,
 
 
     if (lighting) {
-        renderer_light_source_create(render_state,
-                &particles->render_obj[light_source],
-                particles->pos[light_source],
-                    v3(sun_r,sun_g,sun_b));
+        renderer_render_obj_make_light_source(render_state,
+                                              &particles->render_obj[light_source],
+                                              particles->pos[light_source],
+                                              v3(sun_r,sun_g,sun_b),
+                                              0.0005f);
     }
 
 
@@ -581,6 +582,7 @@ void game_update_and_render(GameMemory *memory,
     }
 
     renderer_draw(render_state, &state->camera, buffer, zbuffer, normal_buffer, postfx_buffer);
+    printf("vertices: %d\n polygonsin: %d", render_state->vertex_count, render_state->polygon_count);
 
 #if DEBUG_MODE
        state->frame_counter++;

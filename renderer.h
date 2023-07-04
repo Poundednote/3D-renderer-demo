@@ -75,7 +75,7 @@ struct LightSource {
     RenderObj *obj;
     V3 position;
     V3 color;
-    float falloff;
+    float attenuation;
 };
 
 struct RendererState {
@@ -94,8 +94,8 @@ struct RendererState {
     Triangle polygons_to_draw[65536*50];
 
     uint32_t light_sources_count;
-    LightSource light_sources[255];
-    V3 light_positions[255];
-    float light_radii[255];
-    V3 light_colors[255];
+    LightSource light_sources[128];
+    V3 light_positions[128];
+    V3 light_colors[128];
+    V3 light_vertices[128*12*2+1];
 };
