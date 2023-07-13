@@ -141,8 +141,8 @@ int CALLBACK WinMain(HINSTANCE instance, HINSTANCE prev_instance,
 
     HDC dc_window = GetDC(window);
 
+    vid_buf.width = 1280;
     vid_buf.height = 720;
-    vid_buf.width = 1080;
     vid_buf.bytes_per_pixel = 4;
     vid_buf.pitch = vid_buf.width*vid_buf.bytes_per_pixel;
     vid_buf.info.bmiHeader.biSize = sizeof(vid_buf.info.bmiHeader);

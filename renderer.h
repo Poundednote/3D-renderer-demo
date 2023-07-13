@@ -97,5 +97,5 @@ struct RendererState {
     LightSource light_sources[128];
     V3 light_positions[128];
     V3 light_colors[128];
-    V3 light_vertices[128*12*2+1];
+    V3 light_vertices[128*(12*2+1)];
 };

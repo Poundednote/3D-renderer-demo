@@ -1,7 +1,5 @@
-#include <stdint.h>
+#include <cstdint>
 #include <stdio.h>
-#include <math.h>
-#include <emmintrin.h>
 
 #include "particle_fun.h"
 
@@ -154,7 +152,7 @@ static void generate_chunk(ParticleSystem *particles,
                                               &particles->render_obj[light_source],
                                               particles->pos[light_source],
                                               v3(sun_r,sun_g,sun_b),
-                                              0.0005f);
+                                              (1/particles->mass[light_source]*0.05f));
     }
 
 
@@ -360,7 +358,7 @@ void game_update_and_render(GameMemory *memory,
 
         state->particles.mass[spring->p1_id] = 1;
         state->particles.radius[spring->p1_id] = 1;
-        state->particles.pos[spring->p1_id] = v3(0,-5,0);
+        state->particles.pos[spring->p1_id] = v3(0,-20,0);
         state->particles.render_obj[spring->p1_id] = 
             renderer_render_obj_create(render_state, sphere_mesh, v3(1,1,1),
                                        state->particles.mass[spring->p1_id]*v3(1,1,1),
@@ -401,27 +399,6 @@ void game_update_and_render(GameMemory *memory,
         state->frame_counter = 0;
     }
 #endif
-
-    renderer_draw_background(buffer, 0); 
-
-    //clear z buffer every frame
-    {
-        uint32_t zbuffer_size = zbuffer->width * zbuffer->height;
-        float *depth_value = ((float *)zbuffer->memory);
-        for (uint32_t i = 0; i < zbuffer_size; ++i) {
-            *depth_value++ = FLT_MAX;
-        }
-    }
-
-    //clear normal buffer every frame
-    {
-        uint32_t normal_buffer_size = normal_buffer->width * normal_buffer->height;
-        float *normal_value = ((float *)normal_buffer->memory);
-        for (uint32_t i = 0; i < normal_buffer_size; ++i) {
-            *normal_value++ = 0;
-        }
-    }
-
 
     float timestep = TIME_FOR_FRAME;
 
@@ -545,7 +522,7 @@ void game_update_and_render(GameMemory *memory,
         renderer_render_obj_update(render_state, 
                                    &state->springs[i].render_obj,
                                    0.1f*v3(1,
-                                           (1/5.904f*(state->particles.pos[state->springs[i].p2_id].y-state->particles.pos[state->springs[i].p2_id].y)),
+                                           (1*(state->particles.pos[state->springs[i].p2_id].y-state->particles.pos[state->springs[i].p1_id].y)),
                                             1),
                                      q4_identity(),
                                      v3(0,0,0));

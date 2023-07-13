@@ -4,4 +4,4 @@ set CommonCompilerFlags= -MT -nologo -GR- -Gm- -EHa- -Oi -Od -WX -W4 -wd4100 -wd
 
 mkdir "build"
 pushd "build"
-cl %CommonCompilerFlags% -DSSE=0 -DSHADING=0 -DGRAVITY=0 -Od ..\win_particle.cpp User32.lib Gdi32.lib
+cl %CommonCompilerFlags% -O2 -DSSE=0 -DSHADING=0 -DGRAVITY=0 ..\win_particle.cpp User32.lib Gdi32.lib
