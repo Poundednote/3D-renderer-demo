@@ -68,6 +68,9 @@ struct RenderObj {
     uint32_t index_start;
     uint32_t index_end;
     Mesh *mesh;
+    V3 scale;
+    V3 translation;
+    Quaternion rotation;
     V3 color;
 };
 
