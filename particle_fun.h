@@ -51,6 +51,7 @@ struct ParticleSystem {
     V3 f_accumulator[MAX_PARTICLES];
     int spatial_mask[MAX_PARTICLES];
     int particle_count;
+    uint32_t orbiting_body_id[MAX_PARTICLES];
 
     RenderObj render_obj[MAX_PARTICLES];
 };
@@ -123,6 +124,7 @@ struct GameState {
     WorldChunk current_chunk;
     uint32_t chunk_id;
     int render_distance;
+    uint32_t locked_planet;
 
 #if SSE
     Vertex4Cube particle_vert[MAX_PARTICLES];

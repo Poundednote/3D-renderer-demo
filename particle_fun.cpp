@@ -1,22 +1,24 @@
 #include <cstdint>
+#include <stdint.h>
 #include <stdio.h>
+#include <vcruntime.h>
 
 #include "particle_fun.h"
 
 #define PARTICLE_MASS 1
-#define COEFFICIENT_OF_DRAG 0.01f
+#define GRAVCONST 0.001f
 
 static V3 gravity;
 
 static uint32_t parkmiller_rand(uint32_t *state) {
-	const uint32_t A = 48271;
+const uint32_t A = 48271;
 
-	uint32_t low  = (*state & 0x7fff) * A;			// max: 32,767 * 48,271 = 1,581,695,857 = 0x5e46c371
-	uint32_t high = (*state >> 15)    * A;			// max: 65,535 * 48,271 = 3,163,439,985 = 0xbc8e4371
-	uint32_t x = low + ((high & 0xffff) << 15) + (high >> 16);	// max: 0x5e46c371 + 0x7fff8000 + 0xbc8e = 0xde46ffff
+    uint32_t low  = (*state & 0x7fff) * A; // max: 32,767 * 48,271 = 1,581,695,857 = 0x5e46c371
+    uint32_t high = (*state >> 15)    * A; // max: 65,535 * 48,271 = 3,163,439,985 = 0xbc8e4371
+    uint32_t x = low + ((high & 0xffff) << 15) + (high >> 16); // max: 0x5e46c371 + 0x7fff8000 + 0xbc8e = 0xde46ffff
 
-	x = (x & 0x7fffffff) + (x >> 31);
-	*state = x;
+    x = (x & 0x7fffffff) + (x >> 31);
+    *state = x;
     return *state;
 }
 
@@ -103,13 +105,13 @@ static V3 randomly_distribute_around_object(ParticleSystem *particles, int objec
     float y_offset = ((float)(parkmiller_rand(seed)%200)-100)/100.0f;
     float z_offset = ((float)(parkmiller_rand(seed)%200)-100)/100.0f;
     V3 result = {};
-    result.x = (particles->pos[object_id].x+((particles->mass[object_id]/2)*x_offset*close_scale) + 
+    result.x = (particles->pos[object_id].x+((particles->radius[object_id]/2)*x_offset*close_scale) + 
                 (x_offset)*(far_scale));
 
-    result.y = (particles->pos[object_id].y+((particles->mass[object_id]/2)*y_offset*close_scale) + 
+    result.y = (particles->pos[object_id].y+((particles->radius[object_id]/2)*y_offset*close_scale) + 
                 (y_offset)*(far_scale));
 
-    result.z = (particles->pos[object_id].z+((particles->mass[object_id]/2)*z_offset*close_scale) + 
+    result.z = (particles->pos[object_id].z+((particles->radius[object_id]/2)*z_offset*close_scale) + 
                 (z_offset)*(far_scale));
 
     return result;
@@ -118,6 +120,46 @@ static V3 randomly_distribute_around_object(ParticleSystem *particles, int objec
 
 static inline V3 calculate_chunk_position_offset(WorldChunk current_chunk, WorldChunk chunk) { 
     return v3((float)((chunk.x-current_chunk.x)*WORLD_WIDTH), 0, (float)((chunk.z-current_chunk.z)*WORLD_HEIGHT));
+}
+
+static inline V3 calculate_orbital_velocity(float center_body_mass,
+                                            V3 center_body_position, 
+                                            V3 orbiting_body_position,
+                                            uint32_t *random_state) {
+
+    V3 center_to_orbiting_vector = orbiting_body_position-center_body_position;
+
+    if (center_to_orbiting_vector.x == 0 &&
+        center_to_orbiting_vector.y == 0 &&
+        center_to_orbiting_vector.z == 0) {
+
+        return v3_zero();
+    }
+
+    // TODO investigate why the laws of physics in this game are broken
+    // for some reason you have to multiply by 1000 so that the orbit is somewhat circular
+    float magnitude_velocity = sqrtf(((1000*GRAVCONST*(center_body_mass))));
+                                     //(v3_mag(center_to_orbiting_vector)));
+
+    V3 velocity_vector = {};
+    if (center_to_orbiting_vector.z != 0) {
+        velocity_vector.x = (float)(parkmiller_rand(random_state) % 100);
+        velocity_vector.y = (float)(parkmiller_rand(random_state) % 100);
+        velocity_vector.z = (-(center_to_orbiting_vector.x*velocity_vector.x) -
+                             (center_to_orbiting_vector.y*velocity_vector.y)) /
+                            center_to_orbiting_vector.z;
+
+    }
+
+    else {
+        velocity_vector.x = (float)(parkmiller_rand(random_state) % 100);
+        velocity_vector.z = (float)(parkmiller_rand(random_state) % 100);
+        velocity_vector.y = (-(center_to_orbiting_vector.x*velocity_vector.x) -
+                             (center_to_orbiting_vector.z*velocity_vector.z)) /
+                            center_to_orbiting_vector.y;
+    }
+
+    return magnitude_velocity * v3_norm(velocity_vector);
 }
 
 static void generate_chunk(ParticleSystem *particles, 
@@ -129,93 +171,118 @@ static void generate_chunk(ParticleSystem *particles,
                            bool lighting) {
 
     uint32_t seed = (chunk.x << 16) | (chunk.z);
-    int light_source = particles->particle_count;
-    particles->id[particles->particle_count] = light_source;
-    particles->mass[particles->particle_count] = (((float)(parkmiller_rand(&seed)%100)/100)*(300-100))+100;
-    particles->radius[particles->particle_count] = particles->mass[particles->particle_count];
-    particles->pos[particles->particle_count].x = (float)((parkmiller_rand(&seed)%WORLD_WIDTH)-WORLD_RIGHT);
-    particles->pos[particles->particle_count].y = (float)((parkmiller_rand(&seed)%WORLD_HEIGHT)-WORLD_TOP);
-    particles->pos[particles->particle_count].z = (float)((parkmiller_rand(&seed)%WORLD_DEPTH)-WORLD_FORWARD);
-    particles->pos[particles->particle_count] += calculate_chunk_position_offset(current_chunk, chunk);
-    particles->f_accumulator[particles->particle_count] = {};
-    float sun_r = (float)(parkmiller_rand(&seed) % 100) / 100;
-    float sun_g = (float)(parkmiller_rand(&seed) % 100) / 100;
-    float sun_b = (float)(parkmiller_rand(&seed) % 100) / 100;
-    particles->render_obj[particles->particle_count] = renderer_render_obj_create(render_state, mesh, v3(sun_r,sun_g,sun_b),
-                                                                                  particles->mass[particles->particle_count]*v3(1,1,1), 
-                                                                                  q4_identity(),
-                                                                                  particles->pos[particles->particle_count]);
+    int light_source_id = particles->particle_count;
+    {
+        float mass_mul = 100000.0f;
+        particles->id[light_source_id] = light_source_id;
+        particles->mass[light_source_id] = ((((float)(parkmiller_rand(&seed)%100)/100)*(300-100))+100)*mass_mul;
+        particles->radius[light_source_id] = particles->mass[particles->particle_count]/mass_mul;
 
+        particles->pos[light_source_id].x = (float)((parkmiller_rand(&seed)%WORLD_WIDTH)-WORLD_RIGHT);
+        particles->pos[light_source_id].y = (float)((parkmiller_rand(&seed)%WORLD_HEIGHT)-WORLD_TOP);
+        particles->pos[light_source_id].z = (float)((parkmiller_rand(&seed)%WORLD_DEPTH)-WORLD_FORWARD);
 
-    if (lighting) {
-        renderer_render_obj_make_light_source(render_state,
-                                              &particles->render_obj[light_source],
-                                              particles->pos[light_source],
-                                              v3(sun_r,sun_g,sun_b),
-                                              (1/particles->mass[light_source]*0.05f));
+        particles->pos[light_source_id] += calculate_chunk_position_offset(current_chunk, chunk);
+        particles->f_accumulator[light_source_id] = {};
+        particles->vel[light_source_id] = {};
+        particles->orbiting_body_id[light_source_id] = 0xFFFFFFFF;
+
+        float sun_r = (float)(parkmiller_rand(&seed) % 100) / 100;
+        float sun_g = (float)(parkmiller_rand(&seed) % 100) / 100;
+        float sun_b = (float)(parkmiller_rand(&seed) % 100) / 100;
+
+        particles->render_obj[particles->particle_count] =
+            renderer_render_obj_create(render_state, mesh, v3(sun_r,sun_g,sun_b),
+                                       particles->radius[particles->particle_count]*v3(1,1,1), 
+                                       q4_identity(),
+                                       particles->pos[particles->particle_count]);
+
+        if (lighting) {
+            renderer_render_obj_make_light_source(render_state,
+                                                  &particles->render_obj[light_source_id],
+                                                  particles->pos[light_source_id],
+                                                  v3(sun_r,sun_g,sun_b),
+                                                  (1/particles->radius[light_source_id]*0.01f));
+        }
     }
 
 
     ++particles->particle_count;
-
-    for (int i = 0; i < number_of_particles; i++) { 
+    for (int i = 0; i < number_of_particles; i++) {
         //assert(state->particle_count < arraysize(state->particles));
-        particles->id[particles->particle_count] = particles->particle_count;
-        particles->mass[particles->particle_count] = (float)(parkmiller_rand(&seed) % 100);
-        if (particles->mass[particles->particle_count] < 70) {
-            particles->mass[particles->particle_count] = (float)(parkmiller_rand(&seed) % 10) + 1;
+        uint32_t particle_id = particles->particle_count;
+
+        particles->id[particle_id] = particle_id;
+        float mass_mul = 0.0001f;
+        particles->mass[particle_id] = (float)(parkmiller_rand(&seed) % 200);
+        if (particles->mass[particle_id] < 70) {
+            particles->mass[particle_id] = ((float)(parkmiller_rand(&seed) % 10) + 1)*mass_mul;
         }
 
         else {
-            particles->mass[particles->particle_count] = (float)(parkmiller_rand(&seed) % 5)+10;
+            particles->mass[particle_id] = ((float)(parkmiller_rand(&seed) % 5)+10)*mass_mul;
         }
 
-        particles->radius[particles->particle_count] = particles->mass[particles->particle_count];
-        particles->pos[particles->particle_count] = randomly_distribute_around_object(particles, 
-                light_source, 
+        particles->radius[particle_id] = particles->mass[particle_id]/mass_mul;
+        particles->pos[particle_id] = randomly_distribute_around_object(particles, 
+                light_source_id, 
                 300, 1000, &seed);
 
-#if 0
-        particles->vel[particles->particle_count].x = (float)(parkmiller_rand(&seed)%20)-10;
-        particles->vel[particles->particle_count].y = (float)(parkmiller_rand(&seed)%20)-10;
-        particles->vel[particles->particle_count].z = 0;
-#endif
-        particles->f_accumulator[particles->particle_count] = {};
+#if 1
+       particles->vel[particle_id] = calculate_orbital_velocity(particles->mass[light_source_id],
+                                                                 particles->pos[light_source_id],
+                                                                 particles->pos[particle_id],
+                                                                 &seed);
+
+        particles->f_accumulator[particle_id] = {};
         float r = (float)(parkmiller_rand(&seed) % 100) / 100;
         float g = (float)(parkmiller_rand(&seed) % 100) / 100;
         float b = (float)(parkmiller_rand(&seed) % 100) / 100;
 
-        particles->render_obj[particles->particle_count] = renderer_render_obj_create(render_state, mesh, v3(1,1,1),
-                                                                                      particles->mass[particles->particle_count]*v3(1,1,1), 
+        particles->orbiting_body_id[particle_id] = light_source_id;
+
+        particles->render_obj[particle_id] = renderer_render_obj_create(render_state, mesh, v3(1,1,1),
+                                                                                      particles->radius[particle_id]*v3(1,1,1), 
                                                                                       q4_identity(),
-                                                                                      particles->pos[particles->particle_count]);
-        float mass = particles->mass[particles->particle_count];
-        int parent_id = particles->id[particles->particle_count];
+                                                                                      particles->pos[particle_id]);
+        float mass = particles->mass[particle_id];
+        uint32_t parent_id = particles->id[particle_id];
         ++particles->particle_count;
-        if (mass > 10) {
+#if 1
+        if (mass > 10/mass_mul) {
             for (uint32_t moon = 0; moon < parkmiller_rand(&seed) % ((int)mass); ++moon) {
-                particles->id[particles->particle_count] = particles->particle_count;
-                particles->mass[particles->particle_count] = (float)(parkmiller_rand(&seed) % ((int)particles->mass[parent_id])-3)*0.5f;
+                uint32_t moon_id = particles->particle_count;
+                particles->id[moon_id] = particles->particle_count;
+                particles->mass[moon_id] = ((float)(parkmiller_rand(&seed) % ((int)particles->mass[parent_id])-3)*0.5f)*mass_mul;
 
-                particles->radius[particles->particle_count] = particles->mass[particles->particle_count];
+                particles->radius[moon_id] = particles->mass[moon_id]/mass_mul;
 
-                particles->pos[particles->particle_count] = randomly_distribute_around_object(particles, 
+                particles->pos[moon_id] = randomly_distribute_around_object(particles, 
                         parent_id, 
                         10, 100, &seed);
 
-                particles->vel[particles->particle_count] = particles->vel[parent_id];
-                particles->f_accumulator[particles->particle_count] = {};
-                particles->render_obj[particles->particle_count] = renderer_render_obj_create(render_state, 
-                                                                                              mesh, 
-                                                                                              v3(1,1,1),
-                                                                                              particles->mass[particles->particle_count]*v3(1,1,1),
-                                                                                              q4_identity(),
-                                                                                              particles->pos[particles->particle_count]);
+#if 1
+                particles->vel[moon_id] = calculate_orbital_velocity(particles->mass[parent_id],
+                                                                     particles->pos[parent_id],
+                                                                     particles->pos[moon_id],
+                                                                     &seed);
+#endif
+
+                particles->f_accumulator[moon_id] = {};
+                particles->orbiting_body_id[moon_id] = parent_id;
+                particles->render_obj[moon_id] = renderer_render_obj_create(render_state, 
+                                                                            mesh, 
+                                                                            v3(1,1,1),
+                                                                            particles->radius[moon_id]*v3(1,1,1),
+                                                                            q4_identity(),
+                                                                            particles->pos[moon_id]);
                 ++particles->particle_count;
 
             }
         }
+#endif
     }
+#endif
 }
 
 static void create_side_by_side_particles(ParticleSystem *particles, 
@@ -282,9 +349,34 @@ inline static void spring_apply_force(GameState *state, Spring *spring) {
     state->particles.f_accumulator[spring->p2_id] += -force;
 }
 
+static void zero_buffer(void *buffer, size_t buffer_size) {
+    for (int i = 0; i < buffer_size; ++i) {
+        uint8_t *byte = (uint8_t *)buffer;
+        *byte++ = 0;
+    }
+}
+
 static void generate_world(GameState *state,
                            RendererState *render_state,
                            Mesh *sphere_mesh) {
+
+    zero_buffer(render_state->vertex_buffer, render_state->vertex_count);
+    zero_buffer(render_state->normal_buffer, render_state->normal_count);
+    zero_buffer(render_state->polygons, render_state->polygon_count);
+    zero_buffer(render_state->light_sources, render_state->light_sources_count);
+    //reset ParticleSystem
+    {
+        zero_buffer(state->particles.pos, state->particles.particle_count);
+        zero_buffer(state->particles.mass, state->particles.particle_count);
+        zero_buffer(state->particles.id, state->particles.particle_count);
+        zero_buffer(state->particles.vel, state->particles.particle_count);
+        zero_buffer(state->particles.spatial_mask, state->particles.particle_count);
+        zero_buffer(state->particles.render_obj, state->particles.particle_count);
+        zero_buffer(state->particles.orbiting_body_id, state->particles.particle_count);
+        zero_buffer(state->particles.radius, state->particles.particle_count);
+
+    }
+
 
     render_state->vertex_count = 0;
     render_state->normal_count = 0;
@@ -292,6 +384,7 @@ static void generate_world(GameState *state,
     render_state->light_sources_count = 0;
     state->particles.particle_count = 0;
     state->spring_count = 0;
+
     int offset_z = state->render_distance;
     int offset_x = state->render_distance;
 
@@ -335,6 +428,7 @@ void game_update_and_render(GameMemory *memory,
     Assets *assets = (Assets *)((char*)memory->transient_storage+sizeof(RendererState));
     Mesh *sphere_mesh = &assets->meshes[0];
     Mesh *spring_mesh = &assets->meshes[1];
+    float timestep = 0.001f;
     
     if (!memory->is_initialised) {
         render_state->polygon_count = 0; 
@@ -346,8 +440,9 @@ void game_update_and_render(GameMemory *memory,
         state->chunk_id = 1;
         state->render_distance = 2;
         generate_world(state, render_state, sphere_mesh);
-        create_side_by_side_particles(&state->particles, render_state, 10, v3(0,10,0), v3(0,0,0), sphere_mesh);
-        create_side_by_side_particles(&state->particles, render_state, 10, v3(10,0,0), v3(0,0,0), sphere_mesh);
+        //create_side_by_side_particles(&state->particles, render_state, 10, v3(0,10,0), v3(0,0,0), sphere_mesh);
+        //create_side_by_side_particles(&state->particles, render_state, 10, v3(10,0,0), v3(0,0,0), sphere_mesh);
+#if 0
         Spring *spring = &state->springs[state->spring_count++];
         spring->p1_id = state->particles.particle_count++;
         spring->p2_id = state->particles.particle_count++;
@@ -383,13 +478,15 @@ void game_update_and_render(GameMemory *memory,
                                             1),
                                      q4_identity(),
                                      v3(0,0,0));
+#endif
         state->camera.pos.x = 0;
         state->camera.pos.y = 0;
-        state->camera.pos.z = -20;
-        state->camera.zfar = 100000; 
+        state->camera.pos.z = 0;
+        state->camera.zfar = 500000;
         state->camera.znear = 0.01f; 
         state->camera.fov = PI/3.0f;
-        state->move_speed = 300.0f;
+        state->camera.theta_y = PI;
+        state->move_speed = 0.1f;
         memory->is_initialised = true;
     }
 
@@ -400,19 +497,11 @@ void game_update_and_render(GameMemory *memory,
     }
 #endif
 
-    float timestep = TIME_FOR_FRAME;
 
 
     {
-        V3 move = {};
-        if (input->action) {
-            state->move_speed *= 100;
-            if (state->move_speed > 50000) {
 
-                state->move_speed = 0.05f;
-            }
-        }
-            
+        V3 move = {};
         float mouse_x = (float)input->mouse_pos.x*((float)buffer->width/(float)buffer->height);
         float mouse_y = (float)input->mouse_pos.y;
         mouse_y = mouse_y; 
@@ -472,6 +561,7 @@ void game_update_and_render(GameMemory *memory,
 
         state->camera.pos += state->move_speed*v3_norm(move);
 
+#if 0
         if (state->camera.pos.z > WORLD_FORWARD) {
             state->camera.pos.z = WORLD_BACK;
             state->current_chunk = {state->current_chunk.x, state->current_chunk.z+1};
@@ -495,6 +585,7 @@ void game_update_and_render(GameMemory *memory,
             state->current_chunk = {state->current_chunk.x-1, state->current_chunk.z};
             generate_world(state, render_state, sphere_mesh);
         }
+#endif
 
 
 
@@ -507,56 +598,78 @@ void game_update_and_render(GameMemory *memory,
         }
     }
 
-    //draw particles
-    for (int i = 0;i < state->particles.particle_count; i++) {
-#if 1
-        renderer_render_obj_update(render_state,
-                                   &state->particles.render_obj[i], 
-                                   state->particles.mass[i]*v3(1,1,1), q4_identity(),
-                                   state->particles.pos[i]);
-#endif
-    }
+    state->camera.pos = state->particles.pos[state->locked_planet];
 
-    //draw_springs
-    for (int i = 0;i < state->spring_count; ++i) {
-        renderer_render_obj_update(render_state, 
-                                   &state->springs[i].render_obj,
-                                   0.1f*v3(1,
-                                           (1*(state->particles.pos[state->springs[i].p2_id].y-state->particles.pos[state->springs[i].p1_id].y)),
-                                            1),
-                                     q4_identity(),
-                                     v3(0,0,0));
+        if (input->action) {
+            state->locked_planet ++;
+            if (state->move_speed > 50000) {
 
-    }
+                state->move_speed = 0.05f;
+            }
+        }
 
-    // update the simulation time until it syncs with the time after 1 video frame
-    float t = state->time + TIME_FOR_FRAME;
-    while (state->time < t) {
+    float target_time = state->time+TIME_FOR_FRAME;
+    while (state->time < target_time) {
+
+        //draw_springs
 
         // check for collisions and apply global forces
-
         for (int i = 0; i < state->particles.particle_count; ++i) {
             //zero forces
             state->particles.f_accumulator[i] = {}; 
             //state->particles.f_accumulator[i] += -(COEFFICIENT_OF_DRAG*state->particles.vel[i]); 
+            //
+            uint32_t orbiting_body_id = state->particles.orbiting_body_id[i];
+            if (!(orbiting_body_id == 0xFFFFFFFF)) {
+                V3 planet_to_sun_vector =  state->particles.pos[i] - state->particles.pos[orbiting_body_id];
+
+                float radius = v3_mag(planet_to_sun_vector);
+                state->particles.f_accumulator[i] -= 
+                    (((GRAVCONST*state->particles.mass[orbiting_body_id]) / (radius)) *
+                     v3_norm(planet_to_sun_vector));
+            }
 #if GRAVITY
             state->particles.f_accumulator[i] += gravity; 
 #endif
         }
-
         // apply springs forces
+#if 0
         for (int i = 0; i < state->spring_count; ++i) {
             Spring *spring = &state->springs[i];
             spring_apply_force(state, spring);
 
         }
+#endif
 
         for (int i = 0; i < state->particles.particle_count; ++i) {
-            state->particles.vel[i] += timestep * (state->particles.f_accumulator[i]/state->particles.mass[i]);
-            state->particles.pos[i] += timestep * state->particles.vel[i];
+            state->particles.vel[i] += (timestep * (state->particles.f_accumulator[i]/state->particles.mass[i]));
+            state->particles.pos[i] += (timestep * state->particles.vel[i]);
         }
-       state->time += timestep;
+        state->time += timestep;
     }
+
+    for (int i = 0;i < state->spring_count; ++i) {
+        renderer_render_obj_update(render_state, 
+                &state->springs[i].render_obj,
+                0.1f*v3(1,
+                    (1*(state->particles.pos[state->springs[i].p2_id].y-state->particles.pos[state->springs[i].p1_id].y)),
+                    1),
+                q4_identity(),
+                v3(0,0,0));
+
+    }
+        //draw particles
+        for (int i = 0;i < state->particles.particle_count; i++) {
+#if 1
+            renderer_render_obj_update(render_state,
+                    &state->particles.render_obj[i], 
+                    state->particles.render_obj[i].scale, 
+                    state->particles.render_obj[i].rotation, 
+                    state->particles.pos[i]);
+#endif
+        }
+
+
 
     renderer_draw(render_state, &state->camera, buffer, zbuffer, normal_buffer, postfx_buffer);
     printf("vertices: %d\n polygonsin: %d", render_state->vertex_count, render_state->polygon_count);
