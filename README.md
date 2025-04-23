@@ -1,5 +1,5 @@
 # 3D Renderer Demo
-I originally had planned this to be a full 3d game engine however I want to put this project on hold here while I focus on other things. What I have managed to accomplish though, is a full 3d software rasteriser that has rudimentary mesh support. I primarily did this to better understand how computers handle 3d graphics.
+I originally had planned this to be a full 3d game engine however I want to put this project on hold here while I focus on other things. What I have managed to accomplish though, is a full 3d software rasteriser that has rudimentary mesh support. I primarily did this to better understand how computers handle 3d graphics. I also have implemented a procedurally generated world, with a physics engine. The world models planets and suns where the planets orbit the suns. The suns use Area lighting with a radial linear falloff and have a bloom effect applied to them.
 
 
 
