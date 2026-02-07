@@ -1,9 +1,54 @@
 # 3D Renderer Demo
-I originally had planned this to be a full 3d game engine however I want to put this project on hold here while I focus on other things. What I have managed to accomplish though, is a full 3d software rasteriser that has rudimentary mesh support. I primarily did this to better understand how computers handle 3d graphics. I also have implemented a procedurally generated world, with a physics engine. The world models planets and suns where the planets orbit the suns. The suns use Area lighting with a radial linear falloff and have a bloom effect applied to them.
+Custom C++ Software Rasterizer & Physics Engine
 
+A high-performance, scratch-built 3D game engine written in C++ without any graphics APIs (OpenGL, DirectX, or Vulkan). This project implements a Scanline-based Software Rasterizer to render 3D geometry directly to a memory buffer, coupled with a custom physics engine simulating orbital mechanics and spring dynamics.
 
+The engine prioritizes Data-Oriented Design and SIMD optimizations to achieve real-time performance on the CPU.
+Core Architecture
+1. Scanline Rasterization Pipeline
 
-## Learning Resources I have found useful so far
+Unlike modern GPU pipelines that process triangles in parallel, this engine implements a classic scanline algorithm to rasterize geometry.
+
+    Triangle Decomposition: Triangles are sorted and split into Flat-Top and Flat-Bottom segments to simplify traversal.
+
+    Edge Walking: The rasterizer walks down the left and right edges of the triangle, calculating gradients for attributes (depth, normals, color) per scanline.
+
+    Perspective Correct Interpolation: Attributes are interpolated across the scanline to ensure texture/color accuracy at depth.
+
+    Z-Buffering: Implements a depth buffer for hidden surface removal, with an Early Depth Test optimization to discard occluded pixels before expensive shading calculations.
+
+2. Hand-Optimized SIMD Math
+
+The core math library (particle_math.h) is built on SSE Intrinsics (__m128) to vectorize heavy arithmetic operations.
+
+    4-Wide Vertex Processing: Transformations (World -> View -> Projection) are applied to 4 vertices simultaneously using SIMD registers.
+
+    Quaternion Rotation: Rotations are handled via custom quaternion math, avoiding Gimbal lock and reducing matrix overhead.
+
+3. Data-Oriented Physics System
+
+The particle system uses a Structure of Arrays (SoA) layout instead of Array of Structures (AoS) to maximize CPU cache locality.
+
+    Contiguous Streams: Position, velocity, and mass are stored in separate arrays (V3 pos[MAX], float mass[MAX]), allowing the physics solver to stream through memory linearly without cache pollution from unrelated data (like render flags).
+
+    Simulation Features:
+
+        N-Body Gravity: Simulates planetary orbits where bodies exert gravitational forces on each other.
+
+        Spring Dynamics: Implements Hooke's Law with damping for cloth-like or elastic simulations.
+
+4. Memory Management
+
+    Zero-Allocation Runtime: The engine allocates two large blocks of memory at startup (Permanent and Transient).
+
+    Linear Allocation: Per-frame data uses a bump-pointer allocator in the Transient block, which is reset instantly at the end of every frame, completely eliminating memory fragmentation and malloc/free overhead.
+
+# Things I've learned since then
+* GPUs don't do scanline rendering because its hard to parallelise. Instead they use edge detection algorithms to check if pixels are inside triangles. You can do these edge detection equations in parallel across a block of pixels.
+* Quaternions are cool but harder to parallelise with simd vs matrices and column major matrices make vector matrix operations much faster in SIMD.
+* You can bin triangles into a screen sector so that each CPU thread can work on a specific part of the screen when rasterizing pixels. 
+
+# Learning Resources I have found useful so far
 * [Handmade Hero](https://handmadehero.org/) - This is probably the best resource for understanding how games are made
 ### Physics Simulation
 * [Physically Based Modelling](http://www.cs.cmu.edu/~baraff/pbm/pbm.html) - Understanding physics simulation
